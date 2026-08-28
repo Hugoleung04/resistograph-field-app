@@ -51,7 +51,7 @@ const I18N = {
     back: "Back",
     open: "Open",
     delete: "Delete",
-    export: "Export report",
+    export: "Export Word",
     exportJson: "Backup JSON",
     print: "Print / PDF",
     captured: "Captured",
@@ -123,7 +123,7 @@ const I18N = {
     back: "返回",
     open: "開啟",
     delete: "刪除",
-    export: "匯出報告",
+    export: "匯出 Word",
     exportJson: "備份 JSON",
     print: "列印 / PDF",
     captured: "已擷取",
@@ -262,6 +262,14 @@ function cardinalFromDeg(deg) {
 
 function oppositeDeg(deg) {
   return (((deg + 180) % 360) + 360) % 360;
+}
+
+function headingLabel8(deg) {
+  if (deg == null || Number.isNaN(Number(deg))) return "";
+  const d = ((Number(deg) % 360) + 360) % 360;
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const i = Math.round(d / 45) % 8;
+  return dirs[i] + String(Math.round(d));
 }
 
 function formatHeading(startDeg) {
@@ -1038,7 +1046,67 @@ async function blobToDataUrl(blob) {
   });
 }
 
+async function blobToBytesAndSize(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const url = URL.createObjectURL(blob);
+  const dim = await new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      resolve({ w: img.naturalWidth || 1600, h: img.naturalHeight || 1200 });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      resolve({ w: 1600, h: 1200 });
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  });
+  return { bytes, w: dim.w, h: dim.h };
+}
+
 async function exportReport() {
+  await saveTreeFields();
+  const tree = await getTree(currentTreeId);
+  if (!tree.treePhotoIds || !tree.treePhotoIds.length) {
+    toast(t("need1treePhoto"));
+    return;
+  }
+  if (typeof window.exportFilledDocx !== "function") {
+    toast("Word export not ready");
+    return;
+  }
+  try {
+    toast(t("export") + "…");
+    const firstTree = await getPhoto(tree.treePhotoIds[0]);
+    const treePhoto = firstTree && firstTree.blob ? await blobToBytesAndSize(firstTree.blob) : null;
+    const drills = [];
+    for (const d of tree.drills || []) {
+      const ids = d.photoIds || [];
+      const rec1 = ids[0] ? await getPhoto(ids[0]) : null;
+      const rec2 = ids[1] ? await getPhoto(ids[1]) : null;
+      drills.push({
+        headingLabel: headingLabel8(d.heading),
+        photo1: rec1 && rec1.blob ? await blobToBytesAndSize(rec1.blob) : null,
+        photo2: rec2 && rec2.blob ? await blobToBytesAndSize(rec2.blob) : null,
+        height: d.height,
+        unit: d.unit,
+        notes: d.notes,
+      });
+    }
+    await window.exportFilledDocx({
+      treeId: tree.treeId || "",
+      species: tree.species || "",
+      treePhoto,
+      drills,
+    });
+    toast(t("saved"));
+  } catch (err) {
+    console.error(err);
+    toast("Word export failed: " + (err && err.message ? err.message : "unknown"));
+  }
+}
+
+async function exportReportHtmlLegacy() {
   await saveTreeFields();
   const tree = await getTree(currentTreeId);
   if (!tree.treePhotoIds || !tree.treePhotoIds.length) {
