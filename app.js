@@ -616,34 +616,15 @@ function photoStampText(d = new Date()) {
 }
 
 function drawPhotoStamp(ctx, w, h, text) {
-  const fontSize = Math.max(32, Math.round(Math.min(w, h) * 0.055));
+  const fontSize = Math.max(29, Math.round(Math.min(w, h) * 0.0495));
   ctx.save();
   ctx.font = `bold ${fontSize}px Arial, Helvetica, sans-serif`;
   ctx.textAlign = "right";
   ctx.textBaseline = "bottom";
   const padX = Math.max(12, Math.round(w * 0.03));
   const padY = Math.max(10, Math.round(h * 0.025));
-  const metrics = ctx.measureText(text);
-  const textW = metrics.width;
-  const textH = fontSize;
-  const boxPadX = Math.round(fontSize * 0.35);
-  const boxPadY = Math.round(fontSize * 0.28);
-  const boxW = textW + boxPadX * 2;
-  const boxH = textH + boxPadY * 2;
-  const boxX = w - padX - boxW;
-  const boxY = h - padY - boxH;
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.beginPath();
-  const r = Math.max(4, fontSize * 0.15);
-  ctx.moveTo(boxX + r, boxY);
-  ctx.arcTo(boxX + boxW, boxY, boxX + boxW, boxY + boxH, r);
-  ctx.arcTo(boxX + boxW, boxY + boxH, boxX, boxY + boxH, r);
-  ctx.arcTo(boxX, boxY + boxH, boxX, boxY, r);
-  ctx.arcTo(boxX, boxY, boxX + boxW, boxY, r);
-  ctx.closePath();
-  ctx.fill();
   ctx.fillStyle = "#FF6A00";
-  ctx.fillText(text, w - padX - boxPadX, h - padY - boxPadY);
+  ctx.fillText(text, w - padX, h - padY);
   ctx.restore();
 }
 
