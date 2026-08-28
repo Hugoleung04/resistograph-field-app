@@ -337,14 +337,10 @@ function speciesLabel(item) {
   return chi && chi !== "-" ? chi : sci;
 }
 
-function speciesHaystack(item) {
-  return `${item.chi || ""} ${item.sci || ""}`.toLowerCase();
-}
-
 function filterSpecies(query) {
-  const list = window.SPECIES_LIST || [];
+  const list = Array.isArray(window.SPECIES_LIST) ? window.SPECIES_LIST : [];
   const q = (query || "").trim().toLowerCase();
-  if (!q) return list.slice(0, 40);
+  if (!q) return list.slice(0, 50);
   const exact = [];
   const start = [];
   const mid = [];
@@ -356,49 +352,73 @@ function filterSpecies(query) {
     else if (chi.startsWith(q) || sci.startsWith(q)) start.push(item);
     else if (hay.includes(q)) mid.push(item);
   }
-  return exact.concat(start, mid).slice(0, 40);
+  return exact.concat(start, mid).slice(0, 50);
 }
 
 function hideSpeciesSuggest() {
   const box = document.getElementById("speciesSuggest");
-  if (box) {
-    box.hidden = true;
-    box.innerHTML = "";
-  }
+  if (!box) return;
+  box.classList.remove("open");
+  box.innerHTML = "";
 }
 
 function showSpeciesSuggest(query) {
   const box = document.getElementById("speciesSuggest");
-  if (!box) return;
-  const matches = filterSpecies(query);
-  if (!matches.length) {
-    box.hidden = false;
-    box.innerHTML = `<div class="suggest-empty" style="padding:12px;color:var(--muted)">${t("speciesNone")}</div>`;
+  const input = document.getElementById("f-species");
+  if (!box || !input) return;
+  if (!Array.isArray(window.SPECIES_LIST) || !window.SPECIES_LIST.length) {
+    box.classList.add("open");
+    box.innerHTML = `<div class="suggest-empty">${t("speciesNone")} (list missing)</div>`;
     return;
   }
-  box.hidden = false;
+  const matches = filterSpecies(query);
+  if (!matches.length) {
+    box.classList.add("open");
+    box.innerHTML = `<div class="suggest-empty">${t("speciesNone")}</div>`;
+    return;
+  }
+  box.classList.add("open");
   box.innerHTML = matches
     .map((item, i) => {
-      const label = speciesLabel(item);
-      return `<button type="button" data-species-i="${i}"><div class="chi">${escapeHtml(item.chi && item.chi !== "-" ? item.chi : item.sci)}</div><div class="sci">${escapeHtml(item.sci)}</div></button>`;
+      const title = item.chi && item.chi !== "-" ? item.chi : item.sci;
+      return `<button type="button" class="suggest-item" data-species-i="${i}">
+        <span class="chi">${escapeHtml(title)}</span>
+        <span class="sci">${escapeHtml(item.sci || "")}</span>
+      </button>`;
     })
     .join("");
   box.querySelectorAll("[data-species-i]").forEach((btn) => {
-    btn.addEventListener("mousedown", (e) => e.preventDefault());
-    btn.addEventListener("click", () => {
+    const pick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       const item = matches[Number(btn.getAttribute("data-species-i"))];
-      document.getElementById("f-species").value = speciesLabel(item);
+      if (!item) return;
+      input.value = speciesLabel(item);
       hideSpeciesSuggest();
-    });
+      input.blur();
+    };
+    btn.addEventListener("pointerdown", pick);
+    btn.addEventListener("click", pick);
   });
 }
 
 function wireSpeciesPicker() {
   const input = document.getElementById("f-species");
-  if (!input) return;
+  const box = document.getElementById("speciesSuggest");
+  if (!input || !box) return;
+  input.setAttribute("autocomplete", "off");
+  input.setAttribute("autocapitalize", "off");
+  input.setAttribute("spellcheck", "false");
   input.addEventListener("focus", () => showSpeciesSuggest(input.value));
+  input.addEventListener("click", () => showSpeciesSuggest(input.value));
   input.addEventListener("input", () => showSpeciesSuggest(input.value));
-  input.addEventListener("blur", () => setTimeout(hideSpeciesSuggest, 180));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hideSpeciesSuggest();
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (e.target === input || box.contains(e.target)) return;
+    hideSpeciesSuggest();
+  });
 }
 
 /* ---------- Compass ---------- */
@@ -588,60 +608,100 @@ function photoStampText(d = new Date()) {
 }
 
 function drawPhotoStamp(ctx, w, h, text) {
-  const fontSize = Math.max(26, Math.round(Math.min(w, h) * 0.048));
-  ctx.font = `700 ${fontSize}px Arial, "PingFang HK", "Noto Sans TC", sans-serif`;
+  const fontSize = Math.max(32, Math.round(Math.min(w, h) * 0.055));
+  ctx.save();
+  ctx.font = `bold ${fontSize}px Arial, Helvetica, sans-serif`;
   ctx.textAlign = "right";
   ctx.textBaseline = "bottom";
-  const x = w - Math.round(w * 0.035);
-  const y = h - Math.round(h * 0.03);
-  ctx.lineJoin = "round";
-  ctx.miterLimit = 2;
-  ctx.lineWidth = Math.max(3, fontSize * 0.12);
-  ctx.strokeStyle = "rgba(0,0,0,0.45)";
-  ctx.strokeText(text, x, y);
+  const padX = Math.max(12, Math.round(w * 0.03));
+  const padY = Math.max(10, Math.round(h * 0.025));
+  const metrics = ctx.measureText(text);
+  const textW = metrics.width;
+  const textH = fontSize;
+  const boxPadX = Math.round(fontSize * 0.35);
+  const boxPadY = Math.round(fontSize * 0.28);
+  const boxW = textW + boxPadX * 2;
+  const boxH = textH + boxPadY * 2;
+  const boxX = w - padX - boxW;
+  const boxY = h - padY - boxH;
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.beginPath();
+  const r = Math.max(4, fontSize * 0.15);
+  ctx.moveTo(boxX + r, boxY);
+  ctx.arcTo(boxX + boxW, boxY, boxX + boxW, boxY + boxH, r);
+  ctx.arcTo(boxX + boxW, boxY + boxH, boxX, boxY + boxH, r);
+  ctx.arcTo(boxX, boxY + boxH, boxX, boxY, r);
+  ctx.arcTo(boxX, boxY, boxX + boxW, boxY, r);
+  ctx.closePath();
+  ctx.fill();
   ctx.fillStyle = "#FF6A00";
-  ctx.fillText(text, x, y);
+  ctx.fillText(text, w - padX - boxPadX, h - padY - boxPadY);
+  ctx.restore();
+}
+
+function loadImageViaElement(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("image load failed"));
+    };
+    img.src = url;
+  });
 }
 
 async function loadImageSource(file) {
   if (typeof createImageBitmap === "function") {
     try {
       return await createImageBitmap(file, { imageOrientation: "from-image" });
-    } catch (e) {
+    } catch (e1) {
       try {
         return await createImageBitmap(file);
       } catch (e2) {}
     }
   }
-  return await new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = url;
-  });
+  return loadImageViaElement(file);
 }
 
-function fileToJpegBlob(file, maxEdge = 1600, quality = 0.82) {
-  return (async () => {
-    const img = await loadImageSource(file);
-    let w = img.width;
-    let h = img.height;
-    const scale = Math.min(1, maxEdge / Math.max(w, h));
-    w = Math.round(w * scale);
-    h = Math.round(h * scale);
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(img, 0, 0, w, h);
-    drawPhotoStamp(ctx, w, h, photoStampText(new Date()));
-    if (img.close) try { img.close(); } catch (e) {}
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("compress failed"))), "image/jpeg", quality);
-    });
-    return blob;
-  })();
+async function fileToJpegBlob(file, maxEdge = 1920, quality = 0.88) {
+  const img = await loadImageSource(file);
+  let w = img.width || img.naturalWidth;
+  let h = img.height || img.naturalHeight;
+  if (!w || !h) throw new Error("invalid image size");
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  w = Math.max(1, Math.round(w * scale));
+  h = Math.max(1, Math.round(h * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no canvas context");
+  ctx.drawImage(img, 0, 0, w, h);
+  drawPhotoStamp(ctx, w, h, photoStampText(new Date()));
+  if (typeof img.close === "function") {
+    try { img.close(); } catch (e) {}
+  }
+  const blob = await new Promise((resolve, reject) => {
+    if (canvas.toBlob) {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/jpeg", quality);
+    } else {
+      try {
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        const bin = atob(dataUrl.split(",")[1]);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        resolve(new Blob([arr], { type: "image/jpeg" }));
+      } catch (err) {
+        reject(err);
+      }
+    }
+  });
+  return blob;
 }
 
 async function photoUrl(id) {
@@ -899,33 +959,43 @@ async function deleteCurrentDrill() {
 
 async function handleTreePhoto(file) {
   if (!file) return;
-  await saveTreeFields();
-  const tree = await getTree(currentTreeId);
-  const blob = await fileToJpegBlob(file);
-  const id = uid();
-  await putPhoto(id, blob);
-  tree.treePhotoIds = tree.treePhotoIds || [];
-  tree.treePhotoIds.push(id);
-  tree.updatedAt = Date.now();
-  await putTree(tree);
-  await renderTreePhotos(tree);
+  try {
+    await saveTreeFields();
+    const tree = await getTree(currentTreeId);
+    const blob = await fileToJpegBlob(file);
+    const id = uid();
+    await putPhoto(id, blob);
+    tree.treePhotoIds = tree.treePhotoIds || [];
+    tree.treePhotoIds.push(id);
+    tree.updatedAt = Date.now();
+    await putTree(tree);
+    await renderTreePhotos(tree);
+  } catch (err) {
+    console.error(err);
+    toast("Photo failed: " + (err && err.message ? err.message : "unknown"));
+  }
 }
 
 async function handleDrillPhoto(slotIndex, file) {
   if (!file) return;
-  const tree = await getTree(currentTreeId);
-  const drill = (tree.drills || []).find((d) => d.id === currentDrillId);
-  if (!drill) return;
-  const blob = await fileToJpegBlob(file);
-  const id = uid();
-  const old = (drill.photoIds || [null, null])[slotIndex];
-  if (old) await deletePhoto(old);
-  await putPhoto(id, blob);
-  drill.photoIds = drill.photoIds || [null, null];
-  drill.photoIds[slotIndex] = id;
-  tree.updatedAt = Date.now();
-  await putTree(tree);
-  await renderDrillPhotos(drill);
+  try {
+    const tree = await getTree(currentTreeId);
+    const drill = (tree.drills || []).find((d) => d.id === currentDrillId);
+    if (!drill) return;
+    const blob = await fileToJpegBlob(file);
+    const id = uid();
+    const old = (drill.photoIds || [null, null])[slotIndex];
+    if (old) await deletePhoto(old);
+    await putPhoto(id, blob);
+    drill.photoIds = drill.photoIds || [null, null];
+    drill.photoIds[slotIndex] = id;
+    tree.updatedAt = Date.now();
+    await putTree(tree);
+    await renderDrillPhotos(drill);
+  } catch (err) {
+    console.error(err);
+    toast("Photo failed: " + (err && err.message ? err.message : "unknown"));
+  }
 }
 
 function captureGps() {
