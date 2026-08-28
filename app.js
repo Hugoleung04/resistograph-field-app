@@ -616,7 +616,7 @@ function photoStampText(d = new Date()) {
 }
 
 function drawPhotoStamp(ctx, w, h, text) {
-  const fontSize = Math.max(29, Math.round(Math.min(w, h) * 0.0495));
+  const fontSize = Math.max(26, Math.round(Math.min(w, h) * 0.0446));
   ctx.save();
   ctx.font = `bold ${fontSize}px Arial, Helvetica, sans-serif`;
   ctx.textAlign = "right";

@@ -38,6 +38,14 @@ function nextRid(relsDoc) {
   return "rId" + (max + 1);
 }
 
+function ensureJpegContentType(ctXml) {
+  if (/Extension="jpeg"/.test(ctXml)) return ctXml;
+  return ctXml.replace(
+    "<Default Extension=\"png\" ContentType=\"image/png\"/>",
+    "<Default Extension=\"png\" ContentType=\"image/png\"/><Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>"
+  );
+}
+
 function addImageRel(relsDoc, rid, mediaName) {
   const rel = relsDoc.createElementNS(REL_NS, "Relationship");
   rel.setAttribute("Id", rid);
@@ -225,6 +233,11 @@ async function exportFilledDocx(payload) {
   const outRels = new XMLSerializer().serializeToString(relsDoc);
   zip.file("word/document.xml", outXml);
   zip.file("word/_rels/document.xml.rels", outRels);
+  const ctFile = zip.file("[Content_Types].xml");
+  if (ctFile) {
+    const ctXml = await ctFile.async("string");
+    zip.file("[Content_Types].xml", ensureJpegContentType(ctXml));
+  }
   const blob = await zip.generateAsync({ type: "blob" });
   const a = document.createElement("a");
   const name = "resistograph-" + (payload.treeId || "tree").replace(/\s+/g, "_") + ".docx";
