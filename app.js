@@ -25,8 +25,13 @@ const I18N = {
     direction: "Drilling direction",
     captureDir: "Capture compass direction",
     recapture: "Recapture",
-    manualDir: "Or type bearing (0–360°)",
-    standHint: "Stand at the drill point and point the phone in the same direction the needle travels into the tree. Then tap capture.",
+    manualDir: "Or type START face (0=N, 90=E, 180=S, 270=W)",
+    standHint: "Point the top of the phone the same way the drill needle goes into the tree. The number recorded is the START face (where you begin), not the needle path. Example: drilling North → South, phone faces south, record is North.",
+    startFace: "Start face",
+    facingPhone: "Phone / needle toward",
+    calibrate: "Wave the phone in a figure-8 away from the steel drill, then hold it flat",
+    tiltWarn: "Tilted — lay the phone flat like iPhone Compass",
+    relativeWarn: "Relative heading only — tap Enable compass, or type the start face",
     enableCompass: "Enable compass",
     compassLive: "Compass live",
     compassNeedPerm: "Compass permission needed",
@@ -90,8 +95,13 @@ const I18N = {
     direction: "鑽孔方向",
     captureDir: "擷取指南針方向",
     recapture: "重新擷取",
-    manualDir: "或手動輸入方位角（0–360°）",
-    standHint: "站在鑽孔位置，將手機指向鑽針進入樹幹的方向，然後按擷取。",
+    manualDir: "或手動輸入開始面（0=北、90=東、180=南、270=西）",
+    standHint: "將手機頂端對準鑽針進入樹幹的方向（對住樹）。記錄的是「開始鑽孔的一面」，不是鑽針去向。例如由北鑽向南：指南針朝南，記錄為北。",
+    startFace: "開始面",
+    facingPhone: "手機／鑽針朝向",
+    calibrate: "將手機拿到鋼製儀器外，畫 8 字校準，再平放讀數",
+    tiltWarn: "傾側中 — 請將手機平放，像 iPhone 指南針",
+    relativeWarn: "現為相對方向 — 請再按開啟指南針，或手動輸入開始面",
     enableCompass: "開啟指南針",
     compassLive: "指南針運作中",
     compassNeedPerm: "需要指南針權限",
@@ -139,9 +149,14 @@ let db;
 let lang = localStorage.getItem("rf-lang") || "en";
 let currentTreeId = null;
 let currentDrillId = null;
-let liveHeading = null;
+let liveHeading = null;       // phone facing / needle-toward, magnetic
+let liveStartHeading = null;  // opposite: start / entry face
 let compassWatching = false;
 let orientationHandler = null;
+let absSensor = null;
+let compassMode = "none"; // webkit | absolute | relative
+let lastRawHeading = null;
+let compassTicksReady = false;
 
 function t(key) {
   return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
@@ -245,12 +260,46 @@ function oppositeDeg(deg) {
   return (((deg + 180) % 360) + 360) % 360;
 }
 
-function formatHeading(deg) {
-  if (deg == null || Number.isNaN(Number(deg))) return "—";
-  const d = ((Number(deg) % 360) + 360) % 360;
-  const from = cardinalFromDeg(oppositeDeg(d));
-  const toward = cardinalFromDeg(d);
+function formatHeading(startDeg) {
+  if (startDeg == null || Number.isNaN(Number(startDeg))) return "—";
+  const d = ((Number(startDeg) % 360) + 360) % 360;
+  const from = cardinalFromDeg(d);
+  const toward = cardinalFromDeg(oppositeDeg(d));
   return `${d.toFixed(0)}°  ${from} → ${toward}`;
+}
+
+function norm360(deg) {
+  return ((Number(deg) % 360) + 360) % 360;
+}
+
+function smoothHeading(prev, next, alpha) {
+  if (prev == null || Number.isNaN(prev)) return next;
+  let delta = next - prev;
+  if (delta > 180) delta -= 360;
+  if (delta < -180) delta += 360;
+  return norm360(prev + alpha * delta);
+}
+
+function screenAngle() {
+  if (screen.orientation && typeof screen.orientation.angle === "number") return screen.orientation.angle;
+  if (typeof window.orientation === "number") return window.orientation;
+  return 0;
+}
+
+function buildCompassTicks() {
+  const wrap = document.getElementById("compassTicks");
+  if (!wrap || compassTicksReady) return;
+  const rose = document.getElementById("compassRose");
+  const size = (rose && rose.offsetWidth) || 280;
+  const originY = size / 2 - 12;
+  let html = "";
+  for (let i = 0; i < 72; i++) {
+    const deg = i * 5;
+    const major = deg % 30 === 0;
+    html += `<span class="${major ? "major" : ""}" style="transform:rotate(${deg}deg);transform-origin:50% ${originY}px"></span>`;
+  }
+  wrap.innerHTML = html;
+  compassTicksReady = true;
 }
 
 function showScreen(id) {
@@ -281,36 +330,116 @@ function toggleLang() {
 
 function headingFromEvent(ev) {
   if (typeof ev.webkitCompassHeading === "number" && !Number.isNaN(ev.webkitCompassHeading)) {
-    return ev.webkitCompassHeading;
+    compassMode = "webkit";
+    return {
+      heading: norm360(ev.webkitCompassHeading),
+      accuracy: typeof ev.webkitCompassAccuracy === "number" ? ev.webkitCompassAccuracy : null,
+      tilt: tiltFromEvent(ev),
+    };
   }
-  if (typeof ev.alpha === "number") {
-    // Absolute orientation: 0 alpha ~ north on many Androids when absolute=true
-    let heading = ev.absolute ? 360 - ev.alpha : 360 - ev.alpha;
-    heading = ((heading % 360) + 360) % 360;
-    return heading;
+  if (typeof ev.alpha !== "number") return null;
+  const isAbs = ev.absolute === true || ev.type === "deviceorientationabsolute";
+  if (compassMode === "webkit") return null;
+  if (!isAbs && compassMode === "absolute") return null;
+  compassMode = isAbs ? "absolute" : "relative";
+  return {
+    heading: norm360(360 - ev.alpha + screenAngle()),
+    accuracy: isAbs ? 15 : 45,
+    tilt: tiltFromEvent(ev),
+  };
+}
+
+function tiltFromEvent(ev) {
+  const beta = typeof ev.beta === "number" ? ev.beta : 0;
+  const gamma = typeof ev.gamma === "number" ? ev.gamma : 0;
+  return Math.max(Math.abs(beta), Math.abs(gamma));
+}
+
+function applyCompassReading(rawHeading, accuracy, tilt) {
+  if (rawHeading == null || Number.isNaN(rawHeading)) return;
+  const smooth = compassMode === "relative" ? 0.35 : 0.22;
+  lastRawHeading = smoothHeading(lastRawHeading, rawHeading, smooth);
+  liveHeading = lastRawHeading;
+  liveStartHeading = oppositeDeg(liveHeading);
+
+  const rose = document.getElementById("compassRose");
+  if (rose) rose.style.transform = `rotate(${-liveHeading}deg)`;
+
+  const degEl = document.getElementById("liveDeg");
+  const cardEl = document.getElementById("liveCard");
+  if (degEl) degEl.textContent = `${liveStartHeading.toFixed(0)}°`;
+  if (cardEl) {
+    cardEl.innerHTML = `${t("startFace")} <b>${cardinalFromDeg(liveStartHeading)}</b> · ${t("facingPhone")} ${cardinalFromDeg(liveHeading)}`;
   }
-  return null;
+
+  const st = document.getElementById("compassStatus");
+  const hint = document.getElementById("compassHint");
+  const badAcc = accuracy != null && (accuracy < 0 || accuracy > 25);
+  const tilted = tilt != null && tilt > 28;
+
+  if (st) {
+    if (compassMode === "relative") {
+      st.className = "status-pill warn";
+      st.textContent = t("relativeWarn");
+    } else if (tilted) {
+      st.className = "status-pill warn";
+      st.textContent = t("tiltWarn");
+    } else if (badAcc) {
+      st.className = "status-pill warn";
+      st.textContent = t("calibrate");
+    } else {
+      st.className = "status-pill";
+      st.textContent = t("compassLive");
+    }
+  }
+  if (hint) {
+    hint.textContent = tilted ? t("tiltWarn") : badAcc ? t("calibrate") : t("holdSteady");
+  }
 }
 
 function onOrientation(ev) {
-  const h = headingFromEvent(ev);
-  if (h == null) return;
-  liveHeading = h;
-  const needle = document.getElementById("needle");
-  if (needle) needle.style.transform = `translate(-50%, -50%) rotate(${h}deg)`;
-  const degEl = document.getElementById("liveDeg");
-  const cardEl = document.getElementById("liveCard");
-  if (degEl) degEl.textContent = `${h.toFixed(0)}°`;
-  if (cardEl) cardEl.textContent = formatHeading(h);
+  const reading = headingFromEvent(ev);
+  if (!reading) return;
+  applyCompassReading(reading.heading, reading.accuracy, reading.tilt);
+}
+
+function onCalibrationNeeded() {
   const st = document.getElementById("compassStatus");
   if (st) {
-    st.className = "status-pill";
-    st.textContent = t("compassLive");
+    st.className = "status-pill warn";
+    st.textContent = t("calibrate");
+  }
+}
+
+async function startAbsoluteSensor() {
+  if (!("AbsoluteOrientationSensor" in window)) return false;
+  try {
+    if (absSensor) {
+      absSensor.stop();
+      absSensor = null;
+    }
+    const sensor = new AbsoluteOrientationSensor({ frequency: 30, referenceFrame: "screen" });
+    sensor.addEventListener("reading", () => {
+      if (compassMode === "webkit") return;
+      const q = sensor.quaternion;
+      if (!q) return;
+      const [x, y, z, w] = q;
+      const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+      const heading = norm360((-yaw * 180) / Math.PI);
+      compassMode = "absolute";
+      applyCompassReading(heading, 12, 0);
+    });
+    sensor.start();
+    absSensor = sensor;
+    return true;
+  } catch (err) {
+    return false;
   }
 }
 
 async function startCompass() {
   const st = document.getElementById("compassStatus");
+  buildCompassTicks();
   try {
     if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
       const perm = await DeviceOrientationEvent.requestPermission();
@@ -322,13 +451,17 @@ async function startCompass() {
         return false;
       }
     }
-    if (orientationHandler) {
-      window.removeEventListener("deviceorientationabsolute", orientationHandler);
-      window.removeEventListener("deviceorientation", orientationHandler);
+    if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
+      try { await DeviceMotionEvent.requestPermission(); } catch (e) {}
     }
+    stopCompass();
+    compassMode = "none";
+    lastRawHeading = null;
     orientationHandler = onOrientation;
     window.addEventListener("deviceorientationabsolute", orientationHandler, true);
     window.addEventListener("deviceorientation", orientationHandler, true);
+    window.addEventListener("compassneedscalibration", onCalibrationNeeded, true);
+    await startAbsoluteSensor();
     compassWatching = true;
     if (st) {
       st.className = "status-pill";
@@ -350,21 +483,26 @@ function stopCompass() {
     window.removeEventListener("deviceorientation", orientationHandler);
     orientationHandler = null;
   }
+  window.removeEventListener("compassneedscalibration", onCalibrationNeeded, true);
+  if (absSensor) {
+    try { absSensor.stop(); } catch (e) {}
+    absSensor = null;
+  }
   compassWatching = false;
 }
 
 function captureHeading() {
-  let deg = liveHeading;
+  let startDeg = liveStartHeading;
   const manual = document.getElementById("manualHeading").value;
-  if (deg == null && manual !== "") deg = Number(manual);
-  if (deg == null || Number.isNaN(Number(deg))) {
+  if (startDeg == null && manual !== "") startDeg = Number(manual);
+  if (startDeg == null || Number.isNaN(Number(startDeg))) {
     toast(t("needDir"));
     return;
   }
-  deg = ((Number(deg) % 360) + 360) % 360;
-  document.getElementById("capturedHeading").value = String(Math.round(deg * 10) / 10);
-  document.getElementById("capturedLabel").textContent = `${t("captured")}: ${formatHeading(deg)}`;
-  toast(`${t("captured")} ${formatHeading(deg)}`);
+  startDeg = norm360(startDeg);
+  document.getElementById("capturedHeading").value = String(Math.round(startDeg * 10) / 10);
+  document.getElementById("capturedLabel").textContent = `${t("captured")}: ${formatHeading(startDeg)}`;
+  toast(`${t("captured")} ${formatHeading(startDeg)}`);
 }
 
 /* ---------- Photos ---------- */
@@ -560,7 +698,7 @@ async function addDrill() {
   const drill = {
     id: uid(),
     height: "",
-    unit: "m",
+    unit: "cm",
     heading: null,
     photoIds: [null, null],
     notes: "",
@@ -580,7 +718,7 @@ async function openDrill(drillId) {
   if (!drill) return openTree(currentTreeId);
   showScreen("screen-drill");
   document.getElementById("f-height").value = drill.height || "";
-  document.getElementById("f-unit").value = drill.unit || "m";
+  document.getElementById("f-unit").value = drill.unit || "cm";
   document.getElementById("f-drillNotes").value = drill.notes || "";
   document.getElementById("manualHeading").value = drill.heading != null ? String(drill.heading) : "";
   document.getElementById("capturedHeading").value = drill.heading != null ? String(drill.heading) : "";
@@ -782,8 +920,8 @@ async function exportReport() {
     ${drillBlocks
       .map(({ d, i }) => {
         const deg = d.heading;
-        const from = deg != null ? cardinalFromDeg(oppositeDeg(deg)) : "—";
-        const toward = deg != null ? cardinalFromDeg(deg) : "—";
+        const from = deg != null ? cardinalFromDeg(deg) : "—";
+        const toward = deg != null ? cardinalFromDeg(oppositeDeg(deg)) : "—";
         return `<tr>
           <td>${i + 1}</td>
           <td>${escapeHtml(d.height || "—")} ${escapeHtml(d.unit || "")}</td>

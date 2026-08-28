@@ -106,25 +106,31 @@
 
       <div class="card">
         <h2 data-i18n="direction">Drilling direction</h2>
-        <p class="help" data-i18n="standHint">Stand at the drill point and point the phone in the same direction the needle travels into the tree. Then tap capture.</p>
+        <p class="help" data-i18n="standHint">Point the top of the phone the same way the drill goes into the tree. Capture records the START face, not the needle path.</p>
         <div class="row wrap" style="margin-bottom:8px">
           <span class="status-pill warn" id="compassStatus">Waiting for compass…</span>
           <button class="btn secondary" id="btnEnableCompass" type="button" style="width:auto;min-height:40px;padding:8px 12px" data-i18n="enableCompass">Enable compass</button>
         </div>
         <div class="compass-wrap">
           <div class="compass" aria-hidden="true">
-            <span class="cardinal n">N</span>
-            <span class="cardinal e">E</span>
-            <span class="cardinal s">S</span>
-            <span class="cardinal w">W</span>
-            <div class="needle" id="needle"></div>
+            <div class="facing-mark"></div>
+            <div class="compass-rose" id="compassRose">
+              <div class="ticks" id="compassTicks"></div>
+              <span class="cardinal n">N</span>
+              <span class="cardinal e">E</span>
+              <span class="cardinal s">S</span>
+              <span class="cardinal w">W</span>
+              <div class="north-blade"></div>
+              <div class="south-blade"></div>
+            </div>
             <div class="hub"></div>
           </div>
         </div>
         <div class="heading-readout">
+          <div class="start-kicker" data-i18n="startFace">Start face</div>
           <div class="deg" id="liveDeg">—°</div>
-          <div class="small muted" id="liveCard">—</div>
-          <p class="help" data-i18n="holdSteady">Hold phone level, away from steel tools</p>
+          <div class="small" id="liveCard">—</div>
+          <p class="help" id="compassHint" data-i18n="holdSteady">Hold phone level, away from steel tools</p>
         </div>
         <button class="btn warn" id="btnCaptureHeading" type="button" data-i18n="captureDir">Capture compass direction</button>
         <p class="small" id="capturedLabel" style="margin-top:10px"></p>
@@ -145,8 +151,8 @@
           <div class="field">
             <label data-i18n="unit">Unit</label>
             <select id="f-unit">
+              <option value="cm" selected>cm</option>
               <option value="m">m</option>
-              <option value="cm">cm</option>
               <option value="mm">mm</option>
             </select>
           </div>
