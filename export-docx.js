@@ -116,6 +116,39 @@ function findTableWith(doc, needle) {
   );
 }
 
+function drillTableHeader(tbl) {
+  const rows = tbl.getElementsByTagNameNS(W_NS, "tr");
+  if (!rows.length) return "";
+  return paraText(rows[0]).replace(/\s+/g, " ").trim();
+}
+
+function findDrillResultTable(doc, n) {
+  const exact = "Drill " + n;
+  const token = "@Drill " + n + "_1";
+  const tables = Array.from(doc.getElementsByTagNameNS(W_NS, "tbl"));
+  return (
+    tables.find((tbl) => drillTableHeader(tbl) === exact) ||
+    tables.find((tbl) => fullTableText(tbl).includes(token))
+  );
+}
+
+function lastDrillResultTable(doc) {
+  const tables = Array.from(doc.getElementsByTagNameNS(W_NS, "tbl"));
+  let last = null;
+  for (const tbl of tables) {
+    if (/^Drill\s+\d+$/.test(drillTableHeader(tbl)) || /@Drill\s+\d+_1/.test(fullTableText(tbl))) {
+      last = tbl;
+    }
+  }
+  return last;
+}
+
+function insertNodeAfter(ref, node) {
+  if (!ref || !ref.parentNode) return;
+  if (ref.nextSibling) ref.parentNode.insertBefore(node, ref.nextSibling);
+  else ref.parentNode.appendChild(node);
+}
+
 function retargetClonePlaceholders(tbl, fromN, toN) {
   const from = String(fromN);
   const to = String(toN);
@@ -142,7 +175,7 @@ function fillDrillTable(doc, zip, relsDoc, n, drill, counters) {
   const token1 = `@Drill ${n}_1`;
   const token2 = `@Drilling ${n}_2`;
   const token3 = `@Drilling ${n}_3`;
-  const tbl = findTableWith(doc, token1) || findTableWith(doc, `@Drill ${n}_`);
+  const tbl = findDrillResultTable(doc, n) || findTableWith(doc, token1);
   if (!tbl) return;
 
   const dir = drill.headingLabel || "";
@@ -198,7 +231,7 @@ async function exportFilledDocx(payload) {
     setParaText(p3, "");
   }
 
-  const proto = findTableWith(doc, "@Drill 1_1");
+  const proto = findDrillResultTable(doc, 1) || findTableWith(doc, "@Drill 1_1");
   const protoClone = proto ? proto.cloneNode(true) : null;
   const body = doc.getElementsByTagNameNS(W_NS, "body")[0];
 
@@ -208,22 +241,24 @@ async function exportFilledDocx(payload) {
   if (drills[0]) fillDrillTable(doc, zip, relsDoc, 1, drills[0], counters);
   if (drills[1]) fillDrillTable(doc, zip, relsDoc, 2, drills[1], counters);
   else {
-    // leave unused drill-2 placeholders blank
     replaceTokenInDoc(doc, "@Drill 2_1", "");
     replaceTokenInDoc(doc, "@Drilling 2_2", "");
     replaceTokenInDoc(doc, "@Drilling 2_3", "");
   }
 
   if (protoClone && drills.length > 2) {
-    let lastTbl = findTableWith(doc, "Drill " + Math.min(drills.length, 2)) || findTableWith(doc, "@Drill 2_1") || proto;
+    let lastTbl = findDrillResultTable(doc, 2) || lastDrillResultTable(doc) || proto;
     for (let n = 3; n <= drills.length; n++) {
+      const spacer = doc.createElementNS(W_NS, "p");
+      const spacerRun = doc.createElementNS(W_NS, "r");
+      const spacerText = doc.createElementNS(W_NS, "t");
+      spacerText.textContent = "";
+      spacerRun.appendChild(spacerText);
+      spacer.appendChild(spacerRun);
       const clone = protoClone.cloneNode(true);
       retargetClonePlaceholders(clone, 1, n);
-      if (lastTbl && lastTbl.parentNode) {
-        lastTbl.parentNode.insertBefore(clone, lastTbl.nextSibling);
-      } else if (body) {
-        body.appendChild(clone);
-      }
+      insertNodeAfter(lastTbl, spacer);
+      insertNodeAfter(spacer, clone);
       fillDrillTable(doc, zip, relsDoc, n, drills[n - 1], counters);
       lastTbl = clone;
     }
