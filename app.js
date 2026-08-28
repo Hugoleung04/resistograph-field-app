@@ -255,8 +255,8 @@ async function deletePhoto(id) {
 
 function cardinalFromDeg(deg) {
   if (deg == null || Number.isNaN(deg)) return "—";
-  const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-  const i = Math.round(((deg % 360) + 360) % 360 / 22.5) % 16;
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const i = Math.round((((deg % 360) + 360) % 360) / 45) % 8;
   return dirs[i];
 }
 
@@ -267,17 +267,22 @@ function oppositeDeg(deg) {
 function headingLabel8(deg) {
   if (deg == null || Number.isNaN(Number(deg))) return "";
   const d = ((Number(deg) % 360) + 360) % 360;
-  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-  const i = Math.round(d / 45) % 8;
-  return dirs[i] + String(Math.round(d));
+  const rounded = Math.round(d) % 360;
+  let card;
+  if (rounded === 0) card = "N";
+  else if (rounded === 90) card = "E";
+  else if (rounded === 180) card = "S";
+  else if (rounded === 270) card = "W";
+  else if (rounded > 0 && rounded < 90) card = "NE";
+  else if (rounded > 90 && rounded < 180) card = "SE";
+  else if (rounded > 180 && rounded < 270) card = "SW";
+  else card = "NW";
+  return card + String(rounded);
 }
 
 function formatHeading(startDeg) {
   if (startDeg == null || Number.isNaN(Number(startDeg))) return "—";
-  const d = ((Number(startDeg) % 360) + 360) % 360;
-  const from = cardinalFromDeg(d);
-  const toward = cardinalFromDeg(oppositeDeg(d));
-  return `${d.toFixed(0)}°  ${from} → ${toward}`;
+  return headingLabel8(startDeg);
 }
 
 function norm360(deg) {

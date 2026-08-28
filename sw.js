@@ -1,4 +1,4 @@
-const CACHE = "resistograph-field-v9";
+const CACHE = "resistograph-field-v12";
 const ASSETS = [
   "./",
   "./index.html",
