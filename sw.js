@@ -1,9 +1,10 @@
-const CACHE = "resistograph-field-v2";
+const CACHE = "resistograph-field-v3";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./species-list.js",
   "./manifest.json",
   "./icons/icon.svg"
 ];

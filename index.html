@@ -44,15 +44,14 @@
       </div>
       <div class="card">
         <h2 data-i18n="treeInfo">Tree information</h2>
-        <div class="grid-2">
-          <div class="field">
-            <label data-i18n="treeId">Tree ID / tag</label>
-            <input id="f-treeId" autocomplete="off">
-          </div>
-          <div class="field">
-            <label data-i18n="species">Species</label>
-            <input id="f-species" autocomplete="off">
-          </div>
+        <div class="field">
+          <label data-i18n="treeId">Tree ID / tag</label>
+          <input id="f-treeId" autocomplete="off">
+        </div>
+        <div class="field species-field">
+          <label data-i18n="species">Species</label>
+          <input id="f-species" autocomplete="off" data-i18n-placeholder="speciesSearch">
+          <div class="suggest" id="speciesSuggest" hidden></div>
         </div>
         <div class="field">
           <label data-i18n="site">Site / location</label>
@@ -180,6 +179,7 @@
     </section>
   </div>
   <div class="toast" id="toast"></div>
+  <script src="./species-list.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

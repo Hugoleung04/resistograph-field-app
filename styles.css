@@ -294,6 +294,36 @@ label { display: block; font-size: 0.82rem; color: var(--accent-2); margin-botto
 }
 .hidden-file { display: none; }
 
+.species-field { position: relative; }
+.suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% - 4px);
+  max-height: 240px;
+  overflow: auto;
+  background: #102018;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  z-index: 15;
+  box-shadow: var(--shadow);
+}
+.suggest button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 10px 12px;
+  cursor: pointer;
+  min-height: 48px;
+}
+.suggest button:last-child { border-bottom: 0; }
+.suggest button:active, .suggest button:hover { background: #1b3024; }
+.suggest .chi { font-weight: 700; }
+.suggest .sci { color: var(--muted); font-size: 0.82rem; font-style: italic; }
+
 .toast {
   position: fixed;
   left: 50%;

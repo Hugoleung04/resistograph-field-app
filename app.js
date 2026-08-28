@@ -9,6 +9,8 @@ const I18N = {
     treeInfo: "Tree information",
     treeId: "Tree ID / tag",
     species: "Species",
+    speciesSearch: "Search Chinese or scientific name",
+    speciesNone: "No matching species",
     site: "Site / location",
     inspector: "Inspector",
     notes: "Notes",
@@ -79,6 +81,8 @@ const I18N = {
     treeInfo: "樹木資料",
     treeId: "樹木編號 / 標籤",
     species: "樹種",
+    speciesSearch: "搜尋中文名或學名",
+    speciesNone: "沒有符合的樹種",
     site: "地點",
     inspector: "檢查員",
     notes: "備註",
@@ -326,6 +330,77 @@ function toggleLang() {
   if (document.getElementById("screen-tree").classList.contains("active") && currentTreeId) openTree(currentTreeId);
 }
 
+function speciesLabel(item) {
+  const chi = (item.chi || "").trim();
+  const sci = (item.sci || "").trim();
+  if (chi && chi !== "-" && sci) return `${chi} (${sci})`;
+  return chi && chi !== "-" ? chi : sci;
+}
+
+function speciesHaystack(item) {
+  return `${item.chi || ""} ${item.sci || ""}`.toLowerCase();
+}
+
+function filterSpecies(query) {
+  const list = window.SPECIES_LIST || [];
+  const q = (query || "").trim().toLowerCase();
+  if (!q) return list.slice(0, 40);
+  const exact = [];
+  const start = [];
+  const mid = [];
+  for (const item of list) {
+    const chi = (item.chi || "").toLowerCase();
+    const sci = (item.sci || "").toLowerCase();
+    const hay = `${chi} ${sci}`;
+    if (chi === q || sci === q) exact.push(item);
+    else if (chi.startsWith(q) || sci.startsWith(q)) start.push(item);
+    else if (hay.includes(q)) mid.push(item);
+  }
+  return exact.concat(start, mid).slice(0, 40);
+}
+
+function hideSpeciesSuggest() {
+  const box = document.getElementById("speciesSuggest");
+  if (box) {
+    box.hidden = true;
+    box.innerHTML = "";
+  }
+}
+
+function showSpeciesSuggest(query) {
+  const box = document.getElementById("speciesSuggest");
+  if (!box) return;
+  const matches = filterSpecies(query);
+  if (!matches.length) {
+    box.hidden = false;
+    box.innerHTML = `<div class="suggest-empty" style="padding:12px;color:var(--muted)">${t("speciesNone")}</div>`;
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = matches
+    .map((item, i) => {
+      const label = speciesLabel(item);
+      return `<button type="button" data-species-i="${i}"><div class="chi">${escapeHtml(item.chi && item.chi !== "-" ? item.chi : item.sci)}</div><div class="sci">${escapeHtml(item.sci)}</div></button>`;
+    })
+    .join("");
+  box.querySelectorAll("[data-species-i]").forEach((btn) => {
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", () => {
+      const item = matches[Number(btn.getAttribute("data-species-i"))];
+      document.getElementById("f-species").value = speciesLabel(item);
+      hideSpeciesSuggest();
+    });
+  });
+}
+
+function wireSpeciesPicker() {
+  const input = document.getElementById("f-species");
+  if (!input) return;
+  input.addEventListener("focus", () => showSpeciesSuggest(input.value));
+  input.addEventListener("input", () => showSpeciesSuggest(input.value));
+  input.addEventListener("blur", () => setTimeout(hideSpeciesSuggest, 180));
+}
+
 /* ---------- Compass ---------- */
 
 function headingFromEvent(ev) {
@@ -507,37 +582,66 @@ function captureHeading() {
 
 /* ---------- Photos ---------- */
 
-function fileToJpegBlob(file, maxEdge = 1600, quality = 0.82) {
-  return new Promise((resolve, reject) => {
+function photoStampText(d = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}  ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function drawPhotoStamp(ctx, w, h, text) {
+  const fontSize = Math.max(26, Math.round(Math.min(w, h) * 0.048));
+  ctx.font = `700 ${fontSize}px Arial, "PingFang HK", "Noto Sans TC", sans-serif`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+  const x = w - Math.round(w * 0.035);
+  const y = h - Math.round(h * 0.03);
+  ctx.lineJoin = "round";
+  ctx.miterLimit = 2;
+  ctx.lineWidth = Math.max(3, fontSize * 0.12);
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = "#FF6A00";
+  ctx.fillText(text, x, y);
+}
+
+async function loadImageSource(file) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch (e) {
+      try {
+        return await createImageBitmap(file);
+      } catch (e2) {}
+    }
+  }
+  return await new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => {
-      let w = img.width;
-      let h = img.height;
-      const scale = Math.min(1, maxEdge / Math.max(w, h));
-      w = Math.round(w * scale);
-      h = Math.round(h * scale);
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob(
-        (blob) => {
-          URL.revokeObjectURL(url);
-          if (blob) resolve(blob);
-          else reject(new Error("compress failed"));
-        },
-        "image/jpeg",
-        quality
-      );
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("image load failed"));
-    };
+    img.onload = () => resolve(img);
+    img.onerror = reject;
     img.src = url;
   });
+}
+
+function fileToJpegBlob(file, maxEdge = 1600, quality = 0.82) {
+  return (async () => {
+    const img = await loadImageSource(file);
+    let w = img.width;
+    let h = img.height;
+    const scale = Math.min(1, maxEdge / Math.max(w, h));
+    w = Math.round(w * scale);
+    h = Math.round(h * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, w, h);
+    drawPhotoStamp(ctx, w, h, photoStampText(new Date()));
+    if (img.close) try { img.close(); } catch (e) {}
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("compress failed"))), "image/jpeg", quality);
+    });
+    return blob;
+  })();
 }
 
 async function photoUrl(id) {
@@ -976,6 +1080,7 @@ async function exportJson() {
 async function init() {
   db = await openDb();
   applyI18n();
+  wireSpeciesPicker();
   document.getElementById("langBtn").addEventListener("click", toggleLang);
   document.getElementById("btnNew").addEventListener("click", newTree);
   document.getElementById("btnBackHome").addEventListener("click", async () => {
