@@ -112,12 +112,23 @@ function imageParagraph(rid, widthCm, heightCm, name) {
   );
 }
 
+function lastIndexOfOpenTbl(xml, idx) {
+  let pos = -1;
+  const re = /<w:tbl(?=[\s>])/g;
+  let m;
+  while ((m = re.exec(xml))) {
+    if (m.index >= idx) break;
+    pos = m.index;
+  }
+  return pos;
+}
+
 function extractTableContaining(xml, token) {
   const idx = xml.indexOf(token);
   if (idx < 0) return null;
-  const start = xml.lastIndexOf("<w:tbl", idx);
+  const start = lastIndexOfOpenTbl(xml, idx);
   const end = xml.indexOf("</w:tbl>", idx);
-  if (start < 0 || end < 0) return null;
+  if (start < 0 || end < 0 || end < start) return null;
   return { start, end: end + 8, xml: xml.slice(start, end + 8) };
 }
 
@@ -213,6 +224,9 @@ async function exportFilledDocx(payload) {
   const blob = await zip.generateAsync({
     type: "blob",
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+    createFolders: false,
   });
   const a = document.createElement("a");
   const name = "resistograph-" + (payload.treeId || "tree").replace(/[^\w\-]+/g, "_") + ".docx";
