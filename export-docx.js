@@ -132,6 +132,79 @@ function extractTableContaining(xml, token) {
   return { start, end: end + 8, xml: xml.slice(start, end + 8) };
 }
 
+function splitRows(tblXml) {
+  return tblXml.match(/<w:tr(?=[\s>])[\s\S]*?<\/w:tr>/g) || [];
+}
+
+function splitCells(rowXml) {
+  return rowXml.match(/<w:tc(?=[\s>])[\s\S]*?<\/w:tc>/g) || [];
+}
+
+function setCellText(cellXml, text) {
+  const safe = escapeXml(text);
+  if (/<w:t\b/.test(cellXml)) {
+    let first = true;
+    return cellXml.replace(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g, (run) => {
+      if (first) {
+        first = false;
+        return run.replace(/>[\s\S]*<\/w:t>/, ">" + safe + "</w:t>");
+      }
+      return run.replace(/>[\s\S]*<\/w:t>/, "></w:t>");
+    });
+  }
+  return cellXml.replace("</w:tc>", `<w:p><w:r><w:t>${safe}</w:t></w:r></w:p></w:tc>`);
+}
+
+function replaceRowCells(rowXml, valuesByIndex) {
+  const cells = splitCells(rowXml);
+  if (!cells.length) return rowXml;
+  let out = rowXml;
+  cells.forEach((cell, i) => {
+    if (valuesByIndex[i] == null) return;
+    const filled = setCellText(cell, valuesByIndex[i]);
+    out = out.replace(cell, filled);
+  });
+  return out;
+}
+
+function heightToCm(drill) {
+  if (!drill) return "";
+  const raw = String(drill.height ?? "").trim();
+  if (!raw) return "";
+  const n = Number(raw);
+  const unit = String(drill.unit || "cm").toLowerCase();
+  if (Number.isNaN(n)) return raw;
+  if (unit === "m") return String(Math.round(n * 1000) / 10);
+  if (unit === "mm") return String(Math.round((n / 10) * 10) / 10);
+  return raw;
+}
+
+function fillResistographyInfoTable(xml, drills) {
+  const tbl = extractTableContaining(xml, "Height of drill");
+  if (!tbl) return xml;
+  const rows = splitRows(tbl.xml);
+  if (rows.length < 2) return xml;
+  const header = rows[0];
+  const proto = rows[1];
+  const built = [header];
+  const count = Math.max(drills.length, rows.length - 1);
+  for (let i = 0; i < count; i++) {
+    const n = i + 1;
+    let row = rows[i + 1] || proto;
+    const drill = drills[i];
+    row = replaceRowCells(row, {
+      0: String(n),
+      1: drill ? drill.headingLabel || "" : "",
+      3: drill ? heightToCm(drill) : "",
+    });
+    built.push(row);
+  }
+  const firstTr = tbl.xml.indexOf(header);
+  const lastTrEnd = tbl.xml.lastIndexOf("</w:tr>") + 7;
+  const rebuilt = tbl.xml.slice(0, firstTr) + built.join("") + tbl.xml.slice(lastTrEnd);
+  return xml.slice(0, tbl.start) + rebuilt + xml.slice(tbl.end);
+}
+
 function retargetTableXml(tblXml, fromN, toN) {
   const from = String(fromN);
   const to = String(toN);
@@ -176,6 +249,7 @@ async function exportFilledDocx(payload) {
   }
 
   const drills = payload.drills || [];
+  xml = fillResistographyInfoTable(xml, drills);
   const proto = extractTableContaining(xml, "@Drill 1_1");
   const tbl2 = extractTableContaining(xml, "@Drill 2_1");
 
