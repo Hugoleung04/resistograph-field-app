@@ -335,7 +335,8 @@ function applyI18n() {
   document.title = t("app");
 }
 
-function toggleLang() {
+async function toggleLang() {
+  if (currentTreeId) await saveTreeFields();
   lang = lang === "en" ? "zh" : "en";
   localStorage.setItem("rf-lang", lang);
   applyI18n();
@@ -793,27 +794,32 @@ async function openTree(id) {
   renderDrillList(tree);
 }
 
-async function saveTreeFields() {
-  const tree = await getTree(currentTreeId);
-  if (!tree) return;
-  const screen = document.getElementById("screen-tree");
-  if (!screen || !screen.classList.contains("active")) return tree;
+function readTreeForm() {
   const read = (id) => {
     const el = document.getElementById(id);
-    return el ? el.value : "";
+    return el ? String(el.value || "") : "";
   };
-  const treeId = read("f-treeId").trim();
-  const species = read("f-species").trim();
-  const site = read("f-site").trim();
-  const inspector = read("f-inspector").trim();
-  const date = read("f-date");
-  const notes = read("f-notes").trim();
-  if (treeId || !tree.treeId) tree.treeId = treeId;
-  if (species || !tree.species) tree.species = species;
-  if (site || !tree.site) tree.site = site;
-  if (inspector || !tree.inspector) tree.inspector = inspector;
-  if (date || !tree.date) tree.date = date;
-  if (notes || !tree.notes) tree.notes = notes;
+  return {
+    treeId: read("f-treeId").trim(),
+    species: read("f-species").trim(),
+    site: read("f-site").trim(),
+    inspector: read("f-inspector").trim(),
+    date: read("f-date"),
+    notes: read("f-notes").trim(),
+  };
+}
+
+async function saveTreeFields() {
+  if (!currentTreeId) return null;
+  const tree = await getTree(currentTreeId);
+  if (!tree) return null;
+  const form = readTreeForm();
+  tree.treeId = form.treeId || tree.treeId || "";
+  tree.species = form.species || tree.species || "";
+  tree.site = form.site || tree.site || "";
+  tree.inspector = form.inspector || tree.inspector || "";
+  tree.date = form.date || tree.date || "";
+  tree.notes = form.notes || tree.notes || "";
   tree.updatedAt = Date.now();
   if (tree.inspector) localStorage.setItem("rf-inspector", tree.inspector);
   await putTree(tree);
@@ -1064,8 +1070,23 @@ async function blobToBytesAndSize(blob) {
 }
 
 async function exportReport() {
+  const form = readTreeForm();
   const saved = await saveTreeFields();
   const tree = saved || (await getTree(currentTreeId));
+  if (!tree) {
+    toast("No tree record");
+    return;
+  }
+  const treeId = form.treeId || tree.treeId || "";
+  const species = form.species || tree.species || "";
+  tree.treeId = treeId;
+  tree.species = species;
+  if (form.site) tree.site = form.site;
+  if (form.inspector) tree.inspector = form.inspector;
+  if (form.date) tree.date = form.date;
+  if (form.notes) tree.notes = form.notes;
+  tree.updatedAt = Date.now();
+  await putTree(tree);
   if (!tree.treePhotoIds || !tree.treePhotoIds.length) {
     toast(t("need1treePhoto"));
     return;
@@ -1093,12 +1114,13 @@ async function exportReport() {
       });
     }
     await window.exportFilledDocx({
-      treeId: tree.treeId || "",
-      species: tree.species || "",
+      treeId,
+      species,
       treePhoto,
       drills,
     });
     toast(t("saved"));
+    if (currentTreeId) await openTree(currentTreeId);
   } catch (err) {
     console.error(err);
     toast("Word export failed: " + (err && err.message ? err.message : "unknown"));
@@ -1247,6 +1269,12 @@ async function init() {
   document.getElementById("btnGps").addEventListener("click", captureGps);
   document.getElementById("btnDeleteTree").addEventListener("click", deleteCurrentTree);
   document.getElementById("btnExport").addEventListener("click", exportReport);
+  ["f-treeId", "f-species", "f-site", "f-inspector", "f-date", "f-notes"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("change", () => saveTreeFields());
+    el.addEventListener("blur", () => saveTreeFields());
+  });
   document.getElementById("btnJson").addEventListener("click", exportJson);
   document.getElementById("btnEnableCompass").addEventListener("click", startCompass);
   document.getElementById("btnCaptureHeading").addEventListener("click", captureHeading);

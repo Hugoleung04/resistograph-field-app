@@ -230,6 +230,8 @@ async function exportFilledDocx(payload) {
     if (trimmed === "@2" || text.includes("@2")) return setParagraphPlainText(p, text.replace("@2", species));
     return p;
   });
+  xml = xml.replace(/>@1</g, ">" + escapeXml(treeId) + "<");
+  xml = xml.replace(/>@2</g, ">" + escapeXml(species) + "<");
 
   function putImage(bytes, filename, wCm, hCm) {
     zip.file("word/media/" + filename, bytes);
