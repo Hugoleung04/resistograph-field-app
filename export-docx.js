@@ -32,19 +32,24 @@ function mapParagraphs(xml, fn) {
   });
 }
 
+function tnrRun(text) {
+  return (
+    `<w:r>` +
+    `<w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/></w:rPr>` +
+    `<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`
+  );
+}
+
+function rewriteFirstParagraph(xml, text) {
+  return xml.replace(/<w:p(?=[\s>])[\s\S]*?<\/w:p>/, (p) => {
+    const open = (p.match(/<w:p\b[^>]*>/) || ["<w:p>"])[0];
+    const pPr = (p.match(/<w:pPr[\s\S]*?<\/w:pPr>/) || [""])[0];
+    return `${open}${pPr}${tnrRun(text)}</w:p>`;
+  });
+}
+
 function setParagraphPlainText(pXml, text) {
-  const safe = escapeXml(text);
-  if (/<w:t\b/.test(pXml)) {
-    let first = true;
-    return pXml.replace(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g, (run) => {
-      if (first) {
-        first = false;
-        return run.replace(/>[\s\S]*<\/w:t>/, ">" + safe + "</w:t>");
-      }
-      return run.replace(/>[\s\S]*<\/w:t>/, "></w:t>");
-    });
-  }
-  return pXml.replace(/<\/w:p>/, `<w:r><w:t>${safe}</w:t></w:r></w:p>`);
+  return rewriteFirstParagraph(pXml, text);
 }
 
 function stripHighlights(xml) {
@@ -141,18 +146,8 @@ function splitCells(rowXml) {
 }
 
 function setCellText(cellXml, text) {
-  const safe = escapeXml(text);
-  if (/<w:t\b/.test(cellXml)) {
-    let first = true;
-    return cellXml.replace(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g, (run) => {
-      if (first) {
-        first = false;
-        return run.replace(/>[\s\S]*<\/w:t>/, ">" + safe + "</w:t>");
-      }
-      return run.replace(/>[\s\S]*<\/w:t>/, "></w:t>");
-    });
-  }
-  return cellXml.replace("</w:tc>", `<w:p><w:r><w:t>${safe}</w:t></w:r></w:p></w:tc>`);
+  if (/<w:p(?=[\s>])/.test(cellXml)) return rewriteFirstParagraph(cellXml, text);
+  return cellXml.replace("</w:tc>", `<w:p>${tnrRun(text)}</w:p></w:tc>`);
 }
 
 function replaceRowCells(rowXml, valuesByIndex) {
