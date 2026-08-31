@@ -5,6 +5,13 @@ const R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationship
 const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 const IMG_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
 const EMU = 914400;
+const CM = 360000;
+
+const PHOTO_SIZE = {
+  tree: { wCm: 12.45, hCm: 16.6 },
+  drill1: { wCm: 4.15, hCm: 5.53 },
+  drill2: { wCm: 14.25, hCm: 10.69 },
+};
 
 function paraText(p) {
   return Array.from(p.getElementsByTagNameNS(W_NS, "t"))
@@ -72,19 +79,10 @@ function drawingXml(rid, cx, cy, name) {
   );
 }
 
-function sizeEmu(photo, maxInW, maxInH) {
-  const w = photo && photo.w ? photo.w : 1600;
-  const h = photo && photo.h ? photo.h : 1200;
-  const maxW = maxInW * EMU;
-  const maxH = maxInH * EMU;
-  const scale = Math.min(maxW / w, maxH / h);
-  return { cx: Math.round(w * scale), cy: Math.round(h * scale) };
-}
-
-function insertImageInParagraph(doc, p, rid, photo, maxInW, maxInH, name) {
-  const { cx, cy } = sizeEmu(photo, maxInW, maxInH);
+function insertImageInParagraph(doc, p, rid, photo, widthCm, heightCm, name) {
+  const cx = Math.round(widthCm * CM);
+  const cy = Math.round(heightCm * CM);
   const xml = drawingXml(rid, cx, cy, name);
-  const wrap = doc.createElementNS(W_NS, "p");
   const imported = new DOMParser().parseFromString(
     `<w:p xmlns:w="${W_NS}">${xml}</w:p>`,
     "application/xml"
@@ -92,7 +90,26 @@ function insertImageInParagraph(doc, p, rid, photo, maxInW, maxInH, name) {
   const run = imported.getElementsByTagNameNS(W_NS, "r")[0];
   if (!run) return;
   while (p.firstChild) p.removeChild(p.firstChild);
+  let pPr = null;
+  const pPrs = p.getElementsByTagNameNS(W_NS, "pPr");
+  if (pPrs.length) pPr = pPrs[0];
+  else {
+    pPr = doc.createElementNS(W_NS, "pPr");
+    p.insertBefore(pPr, p.firstChild);
+  }
+  const oldJc = pPr.getElementsByTagNameNS(W_NS, "jc");
+  for (const el of Array.from(oldJc)) el.parentNode.removeChild(el);
+  const jc = doc.createElementNS(W_NS, "jc");
+  jc.setAttribute("w:val", "center");
+  jc.setAttributeNS(W_NS, "val", "center");
+  pPr.appendChild(jc);
   p.appendChild(doc.importNode(run, true));
+}
+
+function stripHighlights(doc) {
+  Array.from(doc.getElementsByTagNameNS(W_NS, "highlight")).forEach((el) => {
+    if (el.parentNode) el.parentNode.removeChild(el);
+  });
 }
 
 function tableHasText(tbl, needle) {
@@ -193,7 +210,7 @@ function fillDrillTable(doc, zip, relsDoc, n, drill, counters) {
     zip.file("word/media/" + name, drill.photo1.bytes);
     const rid = nextRid(relsDoc);
     addImageRel(relsDoc, rid, name);
-    insertImageInParagraph(doc, p1, rid, drill.photo1, 3.1, 2.6, name);
+    insertImageInParagraph(doc, p1, rid, drill.photo1, PHOTO_SIZE.drill1.wCm, PHOTO_SIZE.drill1.hCm, name);
   }
 
   const p2 = Array.from(tbl.getElementsByTagNameNS(W_NS, "p")).find((p) => paraText(p).includes(token2));
@@ -202,7 +219,7 @@ function fillDrillTable(doc, zip, relsDoc, n, drill, counters) {
     zip.file("word/media/" + name, drill.photo2.bytes);
     const rid = nextRid(relsDoc);
     addImageRel(relsDoc, rid, name);
-    insertImageInParagraph(doc, p2, rid, drill.photo2, 5.8, 3.2, name);
+    insertImageInParagraph(doc, p2, rid, drill.photo2, PHOTO_SIZE.drill2.wCm, PHOTO_SIZE.drill2.hCm, name);
   }
 }
 
@@ -217,6 +234,7 @@ async function exportFilledDocx(payload) {
   const doc = parser.parseFromString(xml, "application/xml");
   const relsDoc = parser.parseFromString(relsXml, "application/xml");
   if (doc.getElementsByTagName("parsererror").length) throw new Error("document.xml parse failed");
+  stripHighlights(doc);
 
   replaceTokenInDoc(doc, "@1", payload.treeId || "");
   replaceTokenInDoc(doc, "@2", payload.species || "");
@@ -226,7 +244,7 @@ async function exportFilledDocx(payload) {
     zip.file("word/media/field_tree.jpeg", payload.treePhoto.bytes);
     const rid = nextRid(relsDoc);
     addImageRel(relsDoc, rid, "field_tree.jpeg");
-    insertImageInParagraph(doc, p3, rid, payload.treePhoto, 6.2, 4.6, "field_tree.jpeg");
+    insertImageInParagraph(doc, p3, rid, payload.treePhoto, PHOTO_SIZE.tree.wCm, PHOTO_SIZE.tree.hCm, "field_tree.jpeg");
   } else if (p3) {
     setParaText(p3, "");
   }
