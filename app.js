@@ -796,15 +796,28 @@ async function openTree(id) {
 async function saveTreeFields() {
   const tree = await getTree(currentTreeId);
   if (!tree) return;
-  tree.treeId = document.getElementById("f-treeId").value.trim();
-  tree.species = document.getElementById("f-species").value.trim();
-  tree.site = document.getElementById("f-site").value.trim();
-  tree.inspector = document.getElementById("f-inspector").value.trim();
-  tree.date = document.getElementById("f-date").value;
-  tree.notes = document.getElementById("f-notes").value.trim();
+  const screen = document.getElementById("screen-tree");
+  if (!screen || !screen.classList.contains("active")) return tree;
+  const read = (id) => {
+    const el = document.getElementById(id);
+    return el ? el.value : "";
+  };
+  const treeId = read("f-treeId").trim();
+  const species = read("f-species").trim();
+  const site = read("f-site").trim();
+  const inspector = read("f-inspector").trim();
+  const date = read("f-date");
+  const notes = read("f-notes").trim();
+  if (treeId || !tree.treeId) tree.treeId = treeId;
+  if (species || !tree.species) tree.species = species;
+  if (site || !tree.site) tree.site = site;
+  if (inspector || !tree.inspector) tree.inspector = inspector;
+  if (date || !tree.date) tree.date = date;
+  if (notes || !tree.notes) tree.notes = notes;
   tree.updatedAt = Date.now();
   if (tree.inspector) localStorage.setItem("rf-inspector", tree.inspector);
   await putTree(tree);
+  return tree;
 }
 
 async function renderTreePhotos(tree) {
@@ -1051,8 +1064,8 @@ async function blobToBytesAndSize(blob) {
 }
 
 async function exportReport() {
-  await saveTreeFields();
-  const tree = await getTree(currentTreeId);
+  const saved = await saveTreeFields();
+  const tree = saved || (await getTree(currentTreeId));
   if (!tree.treePhotoIds || !tree.treePhotoIds.length) {
     toast(t("need1treePhoto"));
     return;

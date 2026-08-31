@@ -1,10 +1,6 @@
-/* Fill the official Resis test.docx template and download it. */
+/* Fill Resis-test.docx by string edits so Word can open the file. */
 
-const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-const R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 const IMG_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
-const EMU = 914400;
 const CM = 360000;
 
 const PHOTO_SIZE = {
@@ -13,214 +9,126 @@ const PHOTO_SIZE = {
   drill2: { wCm: 14.25, hCm: 10.69 },
 };
 
-function paraText(p) {
-  return Array.from(p.getElementsByTagNameNS(W_NS, "t"))
-    .map((t) => t.textContent || "")
-    .join("");
+function escapeXml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-function setParaText(p, text) {
-  const ts = Array.from(p.getElementsByTagNameNS(W_NS, "t"));
-  if (!ts.length) return;
-  ts[0].textContent = text;
-  for (let i = 1; i < ts.length; i++) ts[i].textContent = "";
+function paraPlainText(pXml) {
+  let out = "";
+  const re = /<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g;
+  let m;
+  while ((m = re.exec(pXml))) out += m[1];
+  return out.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
 
-function findParas(doc, pred) {
-  return Array.from(doc.getElementsByTagNameNS(W_NS, "p")).filter((p) => pred(paraText(p)));
-}
-
-function replaceTokenInDoc(doc, token, replacement) {
-  for (const p of findParas(doc, (t) => t.includes(token))) {
-    setParaText(p, paraText(p).split(token).join(replacement));
-  }
-}
-
-function nextRid(relsDoc) {
-  let max = 0;
-  Array.from(relsDoc.getElementsByTagNameNS(REL_NS, "Relationship")).forEach((rel) => {
-    const m = String(rel.getAttribute("Id") || "").match(/^rId(\d+)$/);
-    if (m) max = Math.max(max, Number(m[1]));
+function mapParagraphs(xml, fn) {
+  return xml.replace(/<w:p\b[\s\S]*?<\/w:p>/g, (p) => {
+    const next = fn(p, paraPlainText(p));
+    return next == null ? p : next;
   });
+}
+
+function setParagraphPlainText(pXml, text) {
+  const safe = escapeXml(text);
+  if (/<w:t\b/.test(pXml)) {
+    let first = true;
+    return pXml.replace(/<w:t\b[^>]*>[\s\S]*?<\/w:t>/g, (run) => {
+      if (first) {
+        first = false;
+        return run.replace(/>[\s\S]*<\/w:t>/, ">" + safe + "</w:t>");
+      }
+      return run.replace(/>[\s\S]*<\/w:t>/, "></w:t>");
+    });
+  }
+  return pXml.replace(/<\/w:p>/, `<w:r><w:t>${safe}</w:t></w:r></w:p>`);
+}
+
+function stripHighlights(xml) {
+  return xml
+    .replace(/<w:highlight\b[^/]*\/>/g, "")
+    .replace(/<w:highlight\b[^>]*>\s*<\/w:highlight>/g, "");
+}
+
+function nextRid(relsXml) {
+  let max = 0;
+  const re = /Id="rId(\d+)"/g;
+  let m;
+  while ((m = re.exec(relsXml))) max = Math.max(max, Number(m[1]));
   return "rId" + (max + 1);
+}
+
+function addRel(relsXml, rid, mediaName) {
+  const tag = `<Relationship Id="${rid}" Type="${IMG_REL}" Target="media/${mediaName}"/>`;
+  if (relsXml.includes("</Relationships>")) {
+    return relsXml.replace("</Relationships>", tag + "</Relationships>");
+  }
+  return relsXml + tag;
 }
 
 function ensureJpegContentType(ctXml) {
   if (/Extension="jpeg"/.test(ctXml)) return ctXml;
+  if (/Extension="png"/.test(ctXml)) {
+    return ctXml.replace(
+      '<Default Extension="png" ContentType="image/png"/>',
+      '<Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/>'
+    );
+  }
   return ctXml.replace(
-    "<Default Extension=\"png\" ContentType=\"image/png\"/>",
-    "<Default Extension=\"png\" ContentType=\"image/png\"/><Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>"
+    "<Types ",
+    '<Types '
+  ).replace(
+    ">",
+    '><Default Extension="jpeg" ContentType="image/jpeg"/>'
   );
 }
 
-function addImageRel(relsDoc, rid, mediaName) {
-  const rel = relsDoc.createElementNS(REL_NS, "Relationship");
-  rel.setAttribute("Id", rid);
-  rel.setAttribute("Type", IMG_REL);
-  rel.setAttribute("Target", "media/" + mediaName);
-  relsDoc.documentElement.appendChild(rel);
-}
-
-function drawingXml(rid, cx, cy, name) {
-  return (
-    `<w:r xmlns:w="${W_NS}" xmlns:r="${R_NS}" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-    `<w:rPr><w:noProof/></w:rPr>` +
-    `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">` +
-    `<wp:extent cx="${cx}" cy="${cy}"/>` +
-    `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
-    `<wp:docPr id="${Math.floor(Math.random() * 900000) + 1000}" name="${name}"/>` +
-    `<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
-    `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
-    `<pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="${name}"/><pic:cNvPicPr/></pic:nvPicPr>` +
-    `<pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
-    `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>` +
-    `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>` +
-    `</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`
-  );
-}
-
-function insertImageInParagraph(doc, p, rid, photo, widthCm, heightCm, name) {
+function imageParagraph(rid, widthCm, heightCm, name) {
   const cx = Math.round(widthCm * CM);
   const cy = Math.round(heightCm * CM);
-  const xml = drawingXml(rid, cx, cy, name);
-  const imported = new DOMParser().parseFromString(
-    `<w:p xmlns:w="${W_NS}">${xml}</w:p>`,
-    "application/xml"
-  );
-  const run = imported.getElementsByTagNameNS(W_NS, "r")[0];
-  if (!run) return;
-  while (p.firstChild) p.removeChild(p.firstChild);
-  let pPr = null;
-  const pPrs = p.getElementsByTagNameNS(W_NS, "pPr");
-  if (pPrs.length) pPr = pPrs[0];
-  else {
-    pPr = doc.createElementNS(W_NS, "pPr");
-    p.insertBefore(pPr, p.firstChild);
-  }
-  const oldJc = pPr.getElementsByTagNameNS(W_NS, "jc");
-  for (const el of Array.from(oldJc)) el.parentNode.removeChild(el);
-  const jc = doc.createElementNS(W_NS, "jc");
-  jc.setAttribute("w:val", "center");
-  jc.setAttributeNS(W_NS, "val", "center");
-  pPr.appendChild(jc);
-  p.appendChild(doc.importNode(run, true));
-}
-
-function stripHighlights(doc) {
-  Array.from(doc.getElementsByTagNameNS(W_NS, "highlight")).forEach((el) => {
-    if (el.parentNode) el.parentNode.removeChild(el);
-  });
-}
-
-function tableHasText(tbl, needle) {
-  return paraText(tbl).includes
-    ? Array.from(tbl.getElementsByTagNameNS(W_NS, "t"))
-        .map((t) => t.textContent || "")
-        .join("")
-        .includes(needle)
-    : false;
-}
-
-function fullTableText(tbl) {
-  return Array.from(tbl.getElementsByTagNameNS(W_NS, "t"))
-    .map((t) => t.textContent || "")
-    .join("");
-}
-
-function findTableWith(doc, needle) {
-  return Array.from(doc.getElementsByTagNameNS(W_NS, "tbl")).find((tbl) =>
-    fullTableText(tbl).includes(needle)
-  );
-}
-
-function drillTableHeader(tbl) {
-  const rows = tbl.getElementsByTagNameNS(W_NS, "tr");
-  if (!rows.length) return "";
-  return paraText(rows[0]).replace(/\s+/g, " ").trim();
-}
-
-function findDrillResultTable(doc, n) {
-  const exact = "Drill " + n;
-  const token = "@Drill " + n + "_1";
-  const tables = Array.from(doc.getElementsByTagNameNS(W_NS, "tbl"));
+  const id = 2000 + Math.floor(Math.random() * 8000);
   return (
-    tables.find((tbl) => drillTableHeader(tbl) === exact) ||
-    tables.find((tbl) => fullTableText(tbl).includes(token))
+    `<w:p>` +
+    `<w:pPr><w:jc w:val="center"/></w:pPr>` +
+    `<w:r>` +
+    `<w:rPr><w:noProof/></w:rPr>` +
+    `<w:drawing>` +
+    `<wp:inline distT="0" distB="0" distL="0" distR="0">` +
+    `<wp:extent cx="${cx}" cy="${cy}"/>` +
+    `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
+    `<wp:docPr id="${id}" name="${escapeXml(name)}"/>` +
+    `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
+    `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+    `<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:nvPicPr><pic:cNvPr id="0" name="${escapeXml(name)}"/><pic:cNvPicPr/></pic:nvPicPr>` +
+    `<pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+    `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>` +
+    `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+    `</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`
   );
 }
 
-function lastDrillResultTable(doc) {
-  const tables = Array.from(doc.getElementsByTagNameNS(W_NS, "tbl"));
-  let last = null;
-  for (const tbl of tables) {
-    if (/^Drill\s+\d+$/.test(drillTableHeader(tbl)) || /@Drill\s+\d+_1/.test(fullTableText(tbl))) {
-      last = tbl;
-    }
-  }
-  return last;
+function extractTableContaining(xml, token) {
+  const idx = xml.indexOf(token);
+  if (idx < 0) return null;
+  const start = xml.lastIndexOf("<w:tbl", idx);
+  const end = xml.indexOf("</w:tbl>", idx);
+  if (start < 0 || end < 0) return null;
+  return { start, end: end + 8, xml: xml.slice(start, end + 8) };
 }
 
-function insertNodeAfter(ref, node) {
-  if (!ref || !ref.parentNode) return;
-  if (ref.nextSibling) ref.parentNode.insertBefore(node, ref.nextSibling);
-  else ref.parentNode.appendChild(node);
-}
-
-function retargetClonePlaceholders(tbl, fromN, toN) {
+function retargetTableXml(tblXml, fromN, toN) {
   const from = String(fromN);
   const to = String(toN);
-  const tokens = [
-    [`@Drill ${from}_1`, `@Drill ${to}_1`],
-    [`@Drilling ${from}_2`, `@Drilling ${to}_2`],
-    [`@Drilling ${from}_3`, `@Drilling ${to}_3`],
-    [`Drill ${from}`, `Drill ${to}`],
-  ];
-  for (const p of tbl.getElementsByTagNameNS(W_NS, "p")) {
-    let text = paraText(p);
-    let changed = false;
-    for (const [a, b] of tokens) {
-      if (text.includes(a)) {
-        text = text.split(a).join(b);
-        changed = true;
-      }
-    }
-    if (changed) setParaText(p, text);
-  }
-}
-
-function fillDrillTable(doc, zip, relsDoc, n, drill, counters) {
-  const token1 = `@Drill ${n}_1`;
-  const token2 = `@Drilling ${n}_2`;
-  const token3 = `@Drilling ${n}_3`;
-  const tbl = findDrillResultTable(doc, n) || findTableWith(doc, token1);
-  if (!tbl) return;
-
-  const dir = drill.headingLabel || "";
-  for (const p of tbl.getElementsByTagNameNS(W_NS, "p")) {
-    const t = paraText(p);
-    if (t.includes(token3) || t.includes(`(@Drilling ${n}_3)`)) {
-      setParaText(p, t.replace(token3, dir).replace(`(@Drilling ${n}_3)`, `(${dir})`));
-    }
-  }
-
-  const p1 = Array.from(tbl.getElementsByTagNameNS(W_NS, "p")).find((p) => paraText(p).includes(token1));
-  if (p1 && drill.photo1) {
-    counters.img += 1;
-    const name = `field_d${n}_1.jpeg`;
-    zip.file("word/media/" + name, drill.photo1.bytes);
-    const rid = nextRid(relsDoc);
-    addImageRel(relsDoc, rid, name);
-    insertImageInParagraph(doc, p1, rid, drill.photo1, PHOTO_SIZE.drill1.wCm, PHOTO_SIZE.drill1.hCm, name);
-  }
-
-  const p2 = Array.from(tbl.getElementsByTagNameNS(W_NS, "p")).find((p) => paraText(p).includes(token2));
-  if (p2 && drill.photo2) {
-    const name = `field_d${n}_2.jpeg`;
-    zip.file("word/media/" + name, drill.photo2.bytes);
-    const rid = nextRid(relsDoc);
-    addImageRel(relsDoc, rid, name);
-    insertImageInParagraph(doc, p2, rid, drill.photo2, PHOTO_SIZE.drill2.wCm, PHOTO_SIZE.drill2.hCm, name);
-  }
+  return tblXml
+    .replaceAll(`@Drill ${from}_1`, `@Drill ${to}_1`)
+    .replaceAll(`@Drilling ${from}_2`, `@Drilling ${to}_2`)
+    .replaceAll(`@Drilling ${from}_3`, `@Drilling ${to}_3`)
+    .replaceAll(`Drill ${from}`, `Drill ${to}`);
 }
 
 async function exportFilledDocx(payload) {
@@ -228,75 +136,91 @@ async function exportFilledDocx(payload) {
   const res = await fetch("./template/Resis-test.docx");
   if (!res.ok) throw new Error("Template not found");
   const zip = await JSZip.loadAsync(await res.arrayBuffer());
-  const xml = await zip.file("word/document.xml").async("string");
-  const relsXml = await zip.file("word/_rels/document.xml.rels").async("string");
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xml, "application/xml");
-  const relsDoc = parser.parseFromString(relsXml, "application/xml");
-  if (doc.getElementsByTagName("parsererror").length) throw new Error("document.xml parse failed");
-  stripHighlights(doc);
+  let xml = await zip.file("word/document.xml").async("string");
+  let rels = await zip.file("word/_rels/document.xml.rels").async("string");
+  let types = await zip.file("[Content_Types].xml").async("string");
 
-  replaceTokenInDoc(doc, "@1", payload.treeId || "");
-  replaceTokenInDoc(doc, "@2", payload.species || "");
+  xml = stripHighlights(xml);
+  types = ensureJpegContentType(types);
 
-  const p3 = findParas(doc, (t) => t.replace(/\s/g, "") === "@3" || t.trim() === "@3")[0];
-  if (p3 && payload.treePhoto) {
-    zip.file("word/media/field_tree.jpeg", payload.treePhoto.bytes);
-    const rid = nextRid(relsDoc);
-    addImageRel(relsDoc, rid, "field_tree.jpeg");
-    insertImageInParagraph(doc, p3, rid, payload.treePhoto, PHOTO_SIZE.tree.wCm, PHOTO_SIZE.tree.hCm, "field_tree.jpeg");
-  } else if (p3) {
-    setParaText(p3, "");
+  const treeId = payload.treeId || "";
+  const species = payload.species || "";
+  xml = mapParagraphs(xml, (p, text) => {
+    const trimmed = text.replace(/\s+/g, "");
+    if (trimmed === "@1" || text.includes("@1")) return setParagraphPlainText(p, text.replace("@1", treeId));
+    if (trimmed === "@2" || text.includes("@2")) return setParagraphPlainText(p, text.replace("@2", species));
+    return p;
+  });
+
+  function putImage(bytes, filename, wCm, hCm) {
+    zip.file("word/media/" + filename, bytes);
+    const rid = nextRid(rels);
+    rels = addRel(rels, rid, filename);
+    return imageParagraph(rid, wCm, hCm, filename);
   }
 
-  const proto = findDrillResultTable(doc, 1) || findTableWith(doc, "@Drill 1_1");
-  const protoClone = proto ? proto.cloneNode(true) : null;
-  const body = doc.getElementsByTagNameNS(W_NS, "body")[0];
+  if (payload.treePhoto && payload.treePhoto.bytes) {
+    const para = putImage(payload.treePhoto.bytes, "field_tree.jpeg", PHOTO_SIZE.tree.wCm, PHOTO_SIZE.tree.hCm);
+    xml = mapParagraphs(xml, (p, text) => (text.replace(/\s+/g, "") === "@3" || text.trim() === "@3" ? para : p));
+  }
 
   const drills = payload.drills || [];
-  const counters = { img: 20 };
+  const proto = extractTableContaining(xml, "@Drill 1_1");
+  const tbl2 = extractTableContaining(xml, "@Drill 2_1");
 
-  if (drills[0]) fillDrillTable(doc, zip, relsDoc, 1, drills[0], counters);
-  if (drills[1]) fillDrillTable(doc, zip, relsDoc, 2, drills[1], counters);
-  else {
-    replaceTokenInDoc(doc, "@Drill 2_1", "");
-    replaceTokenInDoc(doc, "@Drilling 2_2", "");
-    replaceTokenInDoc(doc, "@Drilling 2_3", "");
-  }
-
-  if (protoClone && drills.length > 2) {
-    let lastTbl = findDrillResultTable(doc, 2) || lastDrillResultTable(doc) || proto;
+  if (proto && drills.length > 2) {
+    let extra = "";
     for (let n = 3; n <= drills.length; n++) {
-      const spacer = doc.createElementNS(W_NS, "p");
-      const spacerRun = doc.createElementNS(W_NS, "r");
-      const spacerText = doc.createElementNS(W_NS, "t");
-      spacerText.textContent = "";
-      spacerRun.appendChild(spacerText);
-      spacer.appendChild(spacerRun);
-      const clone = protoClone.cloneNode(true);
-      retargetClonePlaceholders(clone, 1, n);
-      insertNodeAfter(lastTbl, spacer);
-      insertNodeAfter(spacer, clone);
-      fillDrillTable(doc, zip, relsDoc, n, drills[n - 1], counters);
-      lastTbl = clone;
+      extra += `<w:p><w:r><w:t></w:t></w:r></w:p>` + retargetTableXml(proto.xml, 1, n);
     }
+    if (tbl2) xml = xml.slice(0, tbl2.end) + extra + xml.slice(tbl2.end);
+    else xml = xml.replace("</w:body>", extra + "</w:body>");
   }
 
-  const outXml = new XMLSerializer().serializeToString(doc);
-  const outRels = new XMLSerializer().serializeToString(relsDoc);
-  zip.file("word/document.xml", outXml);
-  zip.file("word/_rels/document.xml.rels", outRels);
-  const ctFile = zip.file("[Content_Types].xml");
-  if (ctFile) {
-    const ctXml = await ctFile.async("string");
-    zip.file("[Content_Types].xml", ensureJpegContentType(ctXml));
+  function fillOneDrill(n, drill) {
+    if (!drill) {
+      xml = mapParagraphs(xml, (p, text) => {
+        if (text.includes(`@Drill ${n}_1`)) return setParagraphPlainText(p, "");
+        if (text.includes(`@Drilling ${n}_2`)) return setParagraphPlainText(p, "");
+        if (text.includes(`@Drilling ${n}_3`)) return setParagraphPlainText(p, text.replace(`@Drilling ${n}_3`, ""));
+        return p;
+      });
+      return;
+    }
+    const dir = drill.headingLabel || "";
+    xml = mapParagraphs(xml, (p, text) => {
+      if (text.includes(`@Drilling ${n}_3`)) {
+        return setParagraphPlainText(p, text.replace(`@Drilling ${n}_3`, dir));
+      }
+      if (text.includes(`@Drill ${n}_1`) && drill.photo1 && drill.photo1.bytes) {
+        return putImage(drill.photo1.bytes, `field_d${n}_1.jpeg`, PHOTO_SIZE.drill1.wCm, PHOTO_SIZE.drill1.hCm);
+      }
+      if (text.includes(`@Drilling ${n}_2`) && drill.photo2 && drill.photo2.bytes) {
+        return putImage(drill.photo2.bytes, `field_d${n}_2.jpeg`, PHOTO_SIZE.drill2.wCm, PHOTO_SIZE.drill2.hCm);
+      }
+      return p;
+    });
   }
-  const blob = await zip.generateAsync({ type: "blob" });
+
+  fillOneDrill(1, drills[0]);
+  fillOneDrill(2, drills[1]);
+  for (let n = 3; n <= drills.length; n++) fillOneDrill(n, drills[n - 1]);
+
+  zip.file("word/document.xml", xml);
+  zip.file("word/_rels/document.xml.rels", rels);
+  zip.file("[Content_Types].xml", types);
+
+  const blob = await zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
   const a = document.createElement("a");
-  const name = "resistograph-" + (payload.treeId || "tree").replace(/\s+/g, "_") + ".docx";
+  const name = "resistograph-" + (payload.treeId || "tree").replace(/[^\w\-]+/g, "_") + ".docx";
   a.href = URL.createObjectURL(blob);
   a.download = name;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
 }
 
 window.exportFilledDocx = exportFilledDocx;
