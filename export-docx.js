@@ -203,11 +203,21 @@ function fillResistographyInfoTable(xml, drills) {
 function retargetTableXml(tblXml, fromN, toN) {
   const from = String(fromN);
   const to = String(toN);
-  return tblXml
-    .replaceAll(`@Drill ${from}_1`, `@Drill ${to}_1`)
-    .replaceAll(`@Drilling ${from}_2`, `@Drilling ${to}_2`)
-    .replaceAll(`@Drilling ${from}_3`, `@Drilling ${to}_3`)
-    .replaceAll(`Drill ${from}`, `Drill ${to}`);
+  const swap = (s) =>
+    s
+      .replaceAll(`@Drill ${from}_1`, `@Drill ${to}_1`)
+      .replaceAll(`@Drilling ${from}_2`, `@Drilling ${to}_2`)
+      .replaceAll(`@Drilling ${from}_3`, `@Drilling ${to}_3`)
+      .replaceAll(`Drill#${from}`, `Drill#${to}`)
+      .replaceAll(`Drill ${from}`, `Drill ${to}`)
+      .replaceAll(`drill ${from}`, `drill ${to}`)
+      .replaceAll(`drilling#${from}`, `drilling#${to}`)
+      .replaceAll(`rill ${from}`, `rill ${to}`);
+  tblXml = mapParagraphs(tblXml, (p, text) => {
+    const next = swap(text);
+    return next === text ? p : setParagraphPlainText(p, next);
+  });
+  return swap(tblXml);
 }
 
 async function exportFilledDocx(payload) {
@@ -224,11 +234,22 @@ async function exportFilledDocx(payload) {
 
   const treeId = payload.treeId || "";
   const species = payload.species || "";
+  const location = payload.location || payload.site || "";
   xml = mapParagraphs(xml, (p, text) => {
-    const trimmed = text.replace(/\s+/g, "");
-    if (trimmed === "@1" || text.includes("@1")) return setParagraphPlainText(p, text.replace("@1", treeId));
-    if (trimmed === "@2" || text.includes("@2")) return setParagraphPlainText(p, text.replace("@2", species));
-    return p;
+    let next = text;
+    const compact = next.replace(/\s+/g, "");
+    if (compact === "@1" || next.includes("@1")) next = next.replaceAll("@1", treeId);
+    if (compact === "@2" || next.includes("@2")) next = next.replaceAll("@2", species);
+    if (treeId && next.includes("CW2670")) next = next.replaceAll("CW2670", treeId);
+    if (species && next.includes("Araucaria columnaris")) {
+      next = next.replaceAll("Araucaria columnaris", species);
+    }
+    const titleish = next.replace(/\s+/g, " ").trim();
+    if (titleish === "( – )" || titleish === "(–)" || titleish === "(-)") {
+      const inner = [location, treeId].filter(Boolean).join(" – ");
+      if (inner) next = `( ${inner} )`;
+    }
+    return next === text ? p : setParagraphPlainText(p, next);
   });
   xml = xml.replace(/>@1</g, ">" + escapeXml(treeId) + "<");
   xml = xml.replace(/>@2</g, ">" + escapeXml(species) + "<");

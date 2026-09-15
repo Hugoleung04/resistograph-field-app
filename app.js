@@ -1116,6 +1116,7 @@ async function exportReport() {
     await window.exportFilledDocx({
       treeId,
       species,
+      location: form.site || tree.site || "",
       treePhoto,
       drills,
     });
