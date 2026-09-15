@@ -17,6 +17,18 @@ function escapeXml(s) {
     .replace(/"/g, "&quot;");
 }
 
+function speciesSciFirst(label) {
+  const s = String(label || "").trim();
+  const m = s.match(/^(.*)\(([^)]+)\)\s*$/);
+  if (!m) return s;
+  const outside = m[1].trim();
+  const inside = m[2].trim();
+  const insideSci = /[A-Za-z]/.test(inside);
+  const outsideChi = /[\u4e00-\u9fff]/.test(outside);
+  if (insideSci && outsideChi) return `${inside} (${outside})`;
+  return s;
+}
+
 function paraPlainText(pXml) {
   let out = "";
   const re = /<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g;
@@ -242,7 +254,7 @@ async function exportFilledDocx(payload) {
     if (compact === "@2" || next.includes("@2")) next = next.replaceAll("@2", species);
     if (treeId && next.includes("CW2670")) next = next.replaceAll("CW2670", treeId);
     if (species && next.includes("Araucaria columnaris")) {
-      next = next.replaceAll("Araucaria columnaris", species);
+      next = next.replaceAll("Araucaria columnaris", speciesSciFirst(species));
     }
     const titleish = next.replace(/\s+/g, " ").trim();
     if (titleish === "( – )" || titleish === "(–)" || titleish === "(-)") {
