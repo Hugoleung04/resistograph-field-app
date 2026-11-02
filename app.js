@@ -24,6 +24,8 @@ const I18N = {
     noDrills: "No drillings yet.",
     height: "Height above ground",
     unit: "Unit",
+    feedSpeed: "Feed speed (cm/min)",
+    drillSpeed: "Drilling speed (r/min)",
     direction: "Drilling direction",
     captureDir: "Capture compass direction",
     recapture: "Recapture",
@@ -48,6 +50,11 @@ const I18N = {
     needDir: "Capture or enter direction",
     need2photos: "Take 2 photos for this drilling",
     need1treePhoto: "Add at least 1 tree photo before export",
+    photoCaption: "Caption (optional)",
+    movePrev: "Move earlier",
+    moveNext: "Move later",
+    stampOn: "Date/time stamp: ON",
+    stampOff: "Date/time stamp: OFF",
     back: "Back",
     open: "Open",
     delete: "Delete",
@@ -96,6 +103,8 @@ const I18N = {
     noDrills: "尚未有鑽孔。",
     height: "離地高度",
     unit: "單位",
+    feedSpeed: "進給速度 (cm/min)",
+    drillSpeed: "鑽速 (r/min)",
     direction: "鑽孔方向",
     captureDir: "擷取指南針方向",
     recapture: "重新擷取",
@@ -120,6 +129,11 @@ const I18N = {
     needDir: "請擷取或輸入方向",
     need2photos: "此鑽孔需要 2 張照片",
     need1treePhoto: "匯出前請至少加入 1 張樹木照片",
+    photoCaption: "說明（可留空）",
+    movePrev: "往前移",
+    moveNext: "往後移",
+    stampOn: "日期時間戳：開",
+    stampOff: "日期時間戳：關",
     back: "返回",
     open: "開啟",
     delete: "刪除",
@@ -333,6 +347,7 @@ function applyI18n() {
   });
   document.getElementById("langBtn").textContent = t("lang");
   document.title = t("app");
+  updateStampButtons();
 }
 
 async function toggleLang() {
@@ -616,6 +631,21 @@ function captureHeading() {
 
 /* ---------- Photos ---------- */
 
+function stampEnabled() {
+  return localStorage.getItem("rf-stamp") !== "0";
+}
+
+function updateStampButtons() {
+  document.querySelectorAll("[data-stamp-toggle]").forEach((btn) => {
+    btn.textContent = stampEnabled() ? t("stampOn") : t("stampOff");
+  });
+}
+
+function toggleStamp() {
+  localStorage.setItem("rf-stamp", stampEnabled() ? "0" : "1");
+  updateStampButtons();
+}
+
 function photoStampText(d = new Date()) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}  ${p(d.getHours())}:${p(d.getMinutes())}`;
@@ -677,7 +707,7 @@ async function fileToJpegBlob(file, maxEdge = 1920, quality = 0.88) {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no canvas context");
   ctx.drawImage(img, 0, 0, w, h);
-  drawPhotoStamp(ctx, w, h, photoStampText(new Date()));
+  if (stampEnabled()) drawPhotoStamp(ctx, w, h, photoStampText(new Date()));
   if (typeof img.close === "function") {
     try { img.close(); } catch (e) {}
   }
@@ -826,22 +856,71 @@ async function saveTreeFields() {
   return tree;
 }
 
+async function moveTreePhoto(pid, delta) {
+  const tree = await getTree(currentTreeId);
+  if (!tree || !tree.treePhotoIds) return;
+  const ids = tree.treePhotoIds.slice();
+  const i = ids.indexOf(pid);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= ids.length) return;
+  const tmp = ids[i];
+  ids[i] = ids[j];
+  ids[j] = tmp;
+  tree.treePhotoIds = ids;
+  tree.updatedAt = Date.now();
+  await putTree(tree);
+  await renderTreePhotos(tree);
+}
+
 async function renderTreePhotos(tree) {
   const wrap = document.getElementById("treePhotos");
   wrap.innerHTML = "";
-  for (const pid of tree.treePhotoIds || []) {
+  tree.treePhotoCaptions = tree.treePhotoCaptions || {};
+  const ids = tree.treePhotoIds || [];
+  for (let i = 0; i < ids.length; i++) {
+    const pid = ids[i];
     const slot = document.createElement("div");
     slot.className = "photo-slot";
     const url = await photoUrl(pid);
-    slot.innerHTML = `<img src="${url}" alt=""><div class="cap">${t("treePhotos")}</div>`;
-    slot.addEventListener("click", async () => {
+    const cap = tree.treePhotoCaptions[pid] || "";
+    slot.innerHTML = `
+      <div class="photo-tools">
+        <span class="order">#${i + 1}</span>
+        <button type="button" class="mini" data-act="prev" ${i === 0 ? "disabled" : ""}>${t("movePrev")}</button>
+        <button type="button" class="mini" data-act="next" ${i === ids.length - 1 ? "disabled" : ""}>${t("moveNext")}</button>
+      </div>
+      <img src="${url}" alt="">
+      <input class="caption-input" type="text" maxlength="120" placeholder="${escapeHtml(t("photoCaption"))}" value="${escapeHtml(cap)}">`;
+    const img = slot.querySelector("img");
+    const input = slot.querySelector("input");
+    img.addEventListener("click", async () => {
       if (!confirm(t("delete") + "?")) return;
       tree.treePhotoIds = tree.treePhotoIds.filter((x) => x !== pid);
+      if (tree.treePhotoCaptions) delete tree.treePhotoCaptions[pid];
       await deletePhoto(pid);
       tree.updatedAt = Date.now();
       await putTree(tree);
       await renderTreePhotos(tree);
     });
+    slot.querySelector('[data-act="prev"]').addEventListener("click", (e) => {
+      e.stopPropagation();
+      moveTreePhoto(pid, -1);
+    });
+    slot.querySelector('[data-act="next"]').addEventListener("click", (e) => {
+      e.stopPropagation();
+      moveTreePhoto(pid, 1);
+    });
+    const saveCap = async () => {
+      const latest = await getTree(currentTreeId);
+      if (!latest) return;
+      latest.treePhotoCaptions = latest.treePhotoCaptions || {};
+      latest.treePhotoCaptions[pid] = input.value.trim();
+      latest.updatedAt = Date.now();
+      await putTree(latest);
+      tree.treePhotoCaptions = latest.treePhotoCaptions;
+    };
+    input.addEventListener("change", saveCap);
+    input.addEventListener("blur", saveCap);
     wrap.appendChild(slot);
   }
 }
@@ -879,6 +958,8 @@ async function addDrill() {
     heading: null,
     photoIds: [null, null],
     notes: "",
+    feedSpeed: localStorage.getItem("rf-feed") || "",
+    drillSpeed: localStorage.getItem("rf-rpm") || "",
     createdAt: Date.now(),
   };
   tree.drills = tree.drills || [];
@@ -897,6 +978,8 @@ async function openDrill(drillId) {
   document.getElementById("f-height").value = drill.height || "";
   document.getElementById("f-unit").value = drill.unit || "cm";
   document.getElementById("f-drillNotes").value = drill.notes || "";
+  document.getElementById("f-feed").value = drill.feedSpeed || "";
+  document.getElementById("f-rpm").value = drill.drillSpeed || "";
   document.getElementById("manualHeading").value = drill.heading != null ? String(drill.heading) : "";
   document.getElementById("capturedHeading").value = drill.heading != null ? String(drill.heading) : "";
   document.getElementById("capturedLabel").textContent =
@@ -949,6 +1032,10 @@ async function saveDrill() {
   drill.unit = document.getElementById("f-unit").value;
   drill.heading = ((heading % 360) + 360) % 360;
   drill.notes = document.getElementById("f-drillNotes").value.trim();
+  drill.feedSpeed = document.getElementById("f-feed").value;
+  drill.drillSpeed = document.getElementById("f-rpm").value;
+  if (drill.feedSpeed) localStorage.setItem("rf-feed", drill.feedSpeed);
+  if (drill.drillSpeed) localStorage.setItem("rf-rpm", drill.drillSpeed);
   tree.updatedAt = Date.now();
   await putTree(tree);
   toast(t("saved"));
@@ -980,6 +1067,8 @@ async function handleTreePhoto(file) {
     await putPhoto(id, blob);
     tree.treePhotoIds = tree.treePhotoIds || [];
     tree.treePhotoIds.push(id);
+    tree.treePhotoCaptions = tree.treePhotoCaptions || {};
+    tree.treePhotoCaptions[id] = "";
     tree.updatedAt = Date.now();
     await putTree(tree);
     await renderTreePhotos(tree);
@@ -1111,13 +1200,29 @@ async function exportReport() {
         height: d.height,
         unit: d.unit,
         notes: d.notes,
+        feedSpeed: d.feedSpeed || "",
+        drillSpeed: d.drillSpeed || "",
       });
+    }
+    const treePhotos = [];
+    for (const pid of tree.treePhotoIds || []) {
+      const rec = await getPhoto(pid);
+      if (rec && rec.blob) {
+        const sized = await blobToBytesAndSize(rec.blob);
+        treePhotos.push({
+          bytes: sized.bytes,
+          w: sized.w,
+          h: sized.h,
+          caption: (tree.treePhotoCaptions && tree.treePhotoCaptions[pid]) || "",
+        });
+      }
     }
     await window.exportFilledDocx({
       treeId,
       species,
       location: form.site || tree.site || "",
       treePhoto,
+      treePhotos,
       drills,
     });
     toast(t("saved"));
@@ -1255,6 +1360,10 @@ async function init() {
       drill.height = document.getElementById("f-height").value.trim();
       drill.unit = document.getElementById("f-unit").value;
       drill.notes = document.getElementById("f-drillNotes").value.trim();
+      drill.feedSpeed = document.getElementById("f-feed").value;
+      drill.drillSpeed = document.getElementById("f-rpm").value;
+      if (drill.feedSpeed) localStorage.setItem("rf-feed", drill.feedSpeed);
+      if (drill.drillSpeed) localStorage.setItem("rf-rpm", drill.drillSpeed);
       const raw = document.getElementById("capturedHeading").value || document.getElementById("manualHeading").value;
       if (raw !== "" && !Number.isNaN(Number(raw))) drill.heading = Number(raw);
       tree.updatedAt = Date.now();
@@ -1307,6 +1416,10 @@ async function init() {
   document.getElementById("btnTreePhoto").addEventListener("click", () => document.getElementById("fileTreePhoto").click());
   document.getElementById("btnPhotoA").addEventListener("click", () => document.getElementById("filePhotoA").click());
   document.getElementById("btnPhotoB").addEventListener("click", () => document.getElementById("filePhotoB").click());
+  document.querySelectorAll("[data-stamp-toggle]").forEach((btn) => {
+    btn.addEventListener("click", toggleStamp);
+  });
+  updateStampButtons();
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});

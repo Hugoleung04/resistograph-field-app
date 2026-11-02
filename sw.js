@@ -1,4 +1,4 @@
-const CACHE = "resistograph-field-v23";
+const CACHE = "resistograph-field-v29";
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const ASSETS = [
   "./app.js",
   "./species-list.js",
   "./jszip.min.js",
+  "./template-b64.js",
   "./export-docx.js",
   "./template/Resis-test.docx",
   "./manifest.json",
@@ -40,7 +41,8 @@ self.addEventListener("fetch", (event) => {
           return res;
         })
         .catch(() => cached);
-      return cached || network;
+      if (cached) return cached;
+      return network.then((res) => res || cached);
     })
   );
 });

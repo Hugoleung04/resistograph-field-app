@@ -287,6 +287,41 @@ label { display: block; font-size: 0.82rem; color: var(--accent-2); margin-botto
   font-size: 0.75rem;
   color: var(--muted);
 }
+.photo-slot .caption-input {
+  width: 100%;
+  background: #0c1812;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  padding: 8px;
+  font-size: 0.8rem;
+  color: var(--text);
+  min-height: 40px;
+}
+.photo-slot .caption-input::placeholder { color: var(--muted); }
+.photo-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  background: #0c1812;
+}
+.photo-tools .order {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-2);
+  margin-right: auto;
+}
+.photo-tools .mini {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-height: 32px;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.photo-tools .mini:disabled { opacity: 0.35; cursor: default; }
 .photo-slot.empty {
   display: grid;
   place-items: center;

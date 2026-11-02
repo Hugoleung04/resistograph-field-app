@@ -79,6 +79,7 @@
         <div class="photos" id="treePhotos"></div>
         <input class="hidden-file" id="fileTreePhoto" type="file" accept="image/*" capture="environment">
         <button class="btn ghost" id="btnTreePhoto" type="button" style="margin-top:10px" data-i18n="addTreePhoto">Take / add tree photo</button>
+        <button class="btn secondary" type="button" style="margin-top:8px" data-stamp-toggle>Date/time stamp: ON</button>
       </div>
 
       <div class="card">
@@ -160,6 +161,30 @@
           <label data-i18n="optionalNotes">Drill notes (sound wood, decay, depth…)</label>
           <textarea id="f-drillNotes"></textarea>
         </div>
+        <div class="grid-2">
+          <div class="field">
+            <label data-i18n="feedSpeed">Feed speed (cm/min)</label>
+            <select id="f-feed">
+              <option value="">—</option>
+              <option value="25">25 cm/min</option>
+              <option value="50">50 cm/min</option>
+              <option value="100">100 cm/min</option>
+              <option value="150">150 cm/min</option>
+              <option value="200">200 cm/min</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="drillSpeed">Drilling speed (r/min)</label>
+            <select id="f-rpm">
+              <option value="">—</option>
+              <option value="1500">1500 r/min</option>
+              <option value="2000">2000 r/min</option>
+              <option value="2500">2500 r/min</option>
+              <option value="3500">3500 r/min</option>
+              <option value="5000">5000 r/min</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div class="card">
@@ -174,12 +199,14 @@
           <button class="btn ghost" id="btnPhotoA" type="button" data-i18n="photoA">Photo 1 — drill position</button>
           <button class="btn ghost" id="btnPhotoB" type="button" data-i18n="photoB">Photo 2 — printout / screen</button>
         </div>
+        <button class="btn secondary" type="button" style="margin-top:8px" data-stamp-toggle>Date/time stamp: ON</button>
       </div>
       <button class="btn danger" id="btnDeleteDrill" type="button" data-i18n="delete">Delete</button>
     </section>
   </div>
   <div class="toast" id="toast"></div>
   <script src="./jszip.min.js"></script>
+  <script src="./template-b64.js"></script>
   <script src="./export-docx.js"></script>
   <script src="./species-list.js"></script>
   <script src="./app.js"></script>
